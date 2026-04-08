@@ -31,5 +31,5 @@ SYSTEM_PROMPT = (
 )
 MAX_HISTORY     = 20        # messages kept per user (10 conversation turns)
 HISTORY_TTL     = 2592000   # conversation history expires after 30 days (seconds)
-RATE_LIMIT      = int(os.environ.get("RATE_LIMIT", "50"))  # max messages per user per day
+RATE_LIMIT      = int(os.environ.get("RATE_LIMIT", "250"))  # max messages per user per day
 MAX_MSG_LEN     = 4096      # Telegram's character limit per message
