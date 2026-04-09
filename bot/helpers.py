@@ -45,11 +45,5 @@ def keep_typing(chat_id: int):
 
 
 def should_respond(message) -> bool:
-    """In groups, only respond when mentioned or replied to."""
-    if message.chat.type == "private":
-        return True
-    if message.reply_to_message and message.reply_to_message.from_user.id == BOT_INFO.id:
-        return True
-    if message.text and f"@{BOT_INFO.username}" in message.text:
-        return True
-    return False
+    """Respond to all messages in private chats and group chats."""
+    return True

@@ -8,9 +8,9 @@ from bot.preferences import get_provider
 # 80 tokens at ~5 tok/s ≈ 16s. Must finish well inside Telegram's webhook
 # timeout (~60s) accounting for HF cold-start jitter, network round-trips,
 # and the Vercel 60s function cap.
-HF_LENGTH = 80
-HF_TEMPERATURE = 0.8
-HF_TOP_K = 40
+HF_LENGTH = 100
+HF_TEMPERATURE = 0.6
+HF_TOP_K = 30
 
 
 def _call_openai(messages: list, retries: int = 3):

@@ -199,15 +199,19 @@ VercelTelegramBot/
 ├── bot/
 │   ├── config.py         # All env vars and constants
 │   ├── clients.py        # bot, ai, redis instances
-│   ├── ai.py             # AI call with retry logic, web search injection, source citations
+│   ├── ai.py             # ask_ai orchestration — history, web search injection, source citations
+│   ├── providers.py      # Provider dispatch: OpenAI-compatible (with retry) or HF Gradio space
+│   ├── preferences.py    # Per-user provider preference stored in Redis
 │   ├── search.py         # Tavily web search with Redis result caching
 │   ├── history.py        # Conversation memory (Redis, graceful degradation)
 │   ├── rate_limit.py     # Per-user rate limiting (graceful degradation)
-│   ├── helpers.py        # Utilities (send_reply, should_respond)
+│   ├── helpers.py        # Utilities (send_reply, keep_typing, should_respond)
 │   └── handlers.py       # Telegram commands — add new commands here
 ├── tests/
 │   ├── conftest.py       # Mocks for running tests without real API keys
 │   ├── test_ai.py
+│   ├── test_providers.py
+│   ├── test_preferences.py
 │   ├── test_handlers.py
 │   ├── test_helpers.py
 │   ├── test_history.py
@@ -255,6 +259,8 @@ Copy the `https://...ngrok-free.app` URL and re-run the `setWebhook` curl from S
 | AI provider | Set `AI_BASE_URL` env var (any OpenAI-compatible endpoint) |
 | Enable web search | Set `TAVILY_API_KEY` env var (from tavily.com) |
 | Secure the webhook | Set `WEBHOOK_SECRET` env var (see Step 7c) |
+| Daily message limit | Set `RATE_LIMIT` env var (default `250`) |
+| Add a second provider | Set `HF_SPACE_ID` env var to a Hugging Face Gradio space — enables `/model` command so users can switch. `HF_TOKEN` is only needed for private/gated spaces |
 | Conversation memory length | Edit `MAX_HISTORY` in `bot/config.py` |
 | Add a new command | Add a handler in `bot/handlers.py` |
 

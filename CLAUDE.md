@@ -17,7 +17,7 @@ A serverless Telegram bot template built for students. It runs on Vercel's free 
 ```
 VercelTelegramBot/
 ├── api/
-│   └── index.py          # Vercel entrypoint — Flask app + webhook route + secret verification
+│   └── index.py          # Vercel entrypoint — Flask app, webhook route, /api/health, secret verification
 ├── bot/
 │   ├── __init__.py
 │   ├── config.py         # All env vars and constants (edit this to configure the bot)
@@ -28,11 +28,13 @@ VercelTelegramBot/
 │   ├── search.py         # Tavily web search with Redis result caching
 │   ├── history.py        # get/save/clear conversation history in Redis (graceful degradation)
 │   ├── rate_limit.py     # Per-user daily message rate limiting via Redis (graceful degradation)
-│   ├── helpers.py        # send_reply() and should_respond() utilities
+│   ├── helpers.py        # send_reply(), keep_typing() context manager, should_respond() utilities
 │   └── handlers.py       # All Telegram command and message handlers — add new commands here
 ├── tests/
 │   ├── conftest.py       # Mocks env vars and external packages (telebot, openai, upstash_redis, flask)
-│   ├── test_ai.py        # needs_search(), _call_ai() retry, ask_ai() orchestration + source citations
+│   ├── test_ai.py        # needs_search(), ask_ai() orchestration + source citations
+│   ├── test_providers.py # _call_openai() retry, _call_hf() prompt handling, generate() dispatch
+│   ├── test_preferences.py # get/set_provider() including Redis failures and HF_SPACE_ID fallback
 │   ├── test_handlers.py  # handle_message() — typing, error handling, rate limit, None text
 │   ├── test_helpers.py
 │   ├── test_history.py   # includes graceful degradation (Redis down) tests
@@ -55,11 +57,11 @@ VercelTelegramBot/
 ## How the bot works
 
 1. Telegram sends a POST to `https://<vercel-url>/api/webhook` on every message
-2. `vercel.json` rewrites that path to `api/index.py` (Vercel only recognises specific filenames as Flask entrypoints — `index.py` is one of them)
+2. `vercel.json` rewrites that path to `api/index.py` (Vercel only recognises specific filenames as Flask entrypoints — `index.py` is one of them). `/api/health` is also rewritten to the same function and returns `OK` 200 for uptime checks
 3. `api/index.py` validates the `X-Telegram-Bot-Api-Secret-Token` header (if `WEBHOOK_SECRET` is set), then deserialises the update and passes it to pyTelegramBotAPI
 4. pyTelegramBotAPI routes to the correct handler in `bot/handlers.py`
-5. For text messages: checks `should_respond()` → checks rate limit → sends typing action → calls `ask_ai()` → sends reply
-6. `ask_ai()` loads history from Redis, checks `needs_search()` for keywords, optionally calls `web_search()` (which checks the Redis cache first), prepends results as a system message, calls `_call_ai()` with retry logic, appends source citations to the reply, saves updated history
+5. For text messages: checks `should_respond()` → checks rate limit → enters `keep_typing()` context manager (a background thread re-sends the Telegram "typing" action every 4s so the indicator stays alive during slow HF generations) → calls `ask_ai()` → exits context (stops thread) → sends reply
+6. `ask_ai()` loads history from Redis, checks `needs_search()` for keywords, optionally calls `web_search()` (which checks the Redis cache first), prepends results as a system message, dispatches to `generate()` in `bot/providers.py` which calls `_call_openai()` (with retry logic) or `_call_hf()` depending on user preference, appends source citations to the reply, saves updated history
 
 **Critical:** `telebot.TeleBot` must be created with `threaded=False`. Without this, handlers run in threads that are killed when the serverless function returns — the bot receives the message but never replies.
 
@@ -77,8 +79,9 @@ VercelTelegramBot/
 | `AI_MODEL` | No | `llama3.1-8b` | Model name for the provider |
 | `TAVILY_API_KEY` | No | — | From tavily.com — enables web search when set |
 | `HF_SPACE_ID` | No | — | Hugging Face Gradio space ID (e.g. `edisimon/armgpt-demo`) — enables `/model` command when set |
+| `HF_TOKEN` | No | — | HF auth token — only needed if the Gradio space is private or gated |
 | `WEBHOOK_SECRET` | No | — | Random string to verify requests come from Telegram |
-| `RATE_LIMIT` | No | `50` | Max messages per user per day |
+| `RATE_LIMIT` | No | `250` | Max messages per user per day |
 
 All env vars are read in `bot/config.py`. `.strip()` is called on every value — this prevents subtle bugs from trailing newlines when setting vars via CLI pipes.
 
@@ -127,8 +130,8 @@ vercel --prod
 
 The bot can dispatch requests to one of two providers per user:
 
-1. **`openai`** (default) — any OpenAI-compatible endpoint via `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL`. Has retry logic (3 attempts with exponential backoff).
-2. **`hf`** (optional) — a Hugging Face Gradio space set via `HF_SPACE_ID`. Called via `gradio_client.Client(...).predict(prompt, length, temperature, top_k)`. No retry (HF is slow).
+1. **`openai`** (default) — any OpenAI-compatible endpoint via `AI_BASE_URL` / `AI_API_KEY` / `AI_MODEL`. `_call_openai()` in `bot/providers.py` has retry logic (3 attempts with exponential backoff: 1s, 2s).
+2. **`hf`** (optional) — a Hugging Face Gradio space set via `HF_SPACE_ID` (with optional `HF_TOKEN` for private spaces). Called via `gradio_client.Client(...).predict(prompt, length, temperature, top_k, api_name="/generate")`. No retry (HF is slow).
 
 **When `HF_SPACE_ID` is empty, the bot works exactly as before** — the `/model` command is not registered and users always hit the OpenAI-compatible endpoint.
 
@@ -140,11 +143,13 @@ The bot can dispatch requests to one of two providers per user:
 Preferences are stored in Redis under `provider:{user_id}` (no TTL). If Redis is down, the bot falls back to `DEFAULT_PROVIDER` (`"openai"`).
 
 **HF provider caveats** — the current target (`edisimon/armgpt-demo`, ArmGPT) has:
-- No messages array — `bot/providers.py::_flatten_messages` flattens the last 3 turns into a `"User: ...\nAssistant: ..."` prompt string
+- Base completion model, not a chat model — `bot/providers.py::_last_user_message` extracts only the most recent user message and passes it as a bare prompt. Chat transcripts (`"User: ...\nAssistant: ..."`) would just confuse it since it was trained on raw Armenian text with no turn structure
 - No system prompt support — the system prompt is dropped entirely for HF
-- Hardcoded knobs — length=150, temperature=0.8, top_k=40
+- No conversation memory — only the latest user turn is sent
+- Hardcoded knobs (`bot/providers.py`) — `HF_LENGTH=100`, `HF_TEMPERATURE=0.6`, `HF_TOP_K=30`. Tuned so generation finishes inside Telegram's ~60s webhook window and Vercel's 60s function cap with cold-start headroom
+- Output is a `(html_output, status_text)` tuple — `_call_hf` takes index 0, strips HTML tags, and strips the echoed prompt prefix if present
 - No web search — `bot/ai.py::ask_ai` skips Tavily injection when provider is `hf` (the ArmGPT model is Armenian-only; English search results would just pollute the prompt)
-- Cold start on free HF tier can take 30–60s while the model downloads
+- Cold start on free HF tier can take 30–60s while the model downloads — `keep_typing()` in `bot/helpers.py` keeps the Telegram typing indicator alive throughout
 
 To switch to a different HF space, change `HF_SPACE_ID` and confirm the target space exposes a `/generate` API with the same signature, or adapt `_call_hf` in `bot/providers.py`.
 
@@ -166,8 +171,9 @@ When `WEBHOOK_SECRET` is set, `api/index.py` checks the `X-Telegram-Bot-Api-Secr
 
 ## Reliability
 
-- **AI retry logic:** `_call_ai()` in `bot/ai.py` retries up to 3 times with exponential backoff (1s, 2s) before raising. Handles transient network errors and rate limit spikes
-- **Redis graceful degradation:** all Redis calls in `bot/history.py` and `bot/rate_limit.py` are wrapped in try-except. If Redis is down: history falls back to empty (stateless mode), rate limiting is skipped
+- **AI retry logic:** `_call_openai()` in `bot/providers.py` retries up to 3 times with exponential backoff (1s, 2s) before raising. Handles transient network errors and rate limit spikes. HF is not retried (it's too slow — a retry would blow the 60s function cap)
+- **Redis graceful degradation:** all Redis calls in `bot/history.py`, `bot/rate_limit.py`, and `bot/preferences.py` are wrapped in try-except. If Redis is down: history falls back to empty (stateless mode), rate limiting is skipped, provider preference falls back to `DEFAULT_PROVIDER`
+- **Typing indicator during slow calls:** `keep_typing()` in `bot/helpers.py` spawns a daemon thread that re-sends `send_chat_action(chat_id, "typing")` every 4 seconds (Telegram's typing action expires after ~5s). On context exit the thread is signalled and joined with a 2s timeout so the serverless function shuts down cleanly
 
 ---
 
@@ -250,5 +256,6 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<VERCEL_URL>/ap
 - **Env var newlines** — always use `--value` flag with Vercel CLI, never pipe values
 - **Cerebras model names** — use `llama3.1-8b` not `llama-3.1-8b`. The dot format is required
 - **Telegram 4096 char limit** — `send_reply()` in `bot/helpers.py` handles splitting automatically
-- **Group chats** — bot only responds when `@mentioned` or replied to. The mention is stripped from the message before sending to AI
+- **Group chats** — `should_respond()` returns `True` for all messages, so the bot replies to every message in any chat it's in. If you need mention-gated or reply-gated behavior in groups, reintroduce it in `bot/helpers.py::should_respond`. The handler still strips `@<bot_username>` from text before sending to the AI
 - **Webhook secret must match** — if `WEBHOOK_SECRET` is set, the same value must be passed as `secret_token` in `setWebhook`. Mismatch causes all updates to return 403 and the bot goes silent
+- **`vercel.json` functions config** — `api/index.py` is pinned to `@vercel/python@4.3.0` with `maxDuration: 60`. HF cold starts eat most of that budget; don't drop the cap without raising HF knobs concerns
