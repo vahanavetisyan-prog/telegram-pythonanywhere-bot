@@ -10,18 +10,23 @@ A minimal Python Telegram bot running on Vercel (free tier) with persistent conv
 
 ---
 
-## What you will need to create
+## What you will need
 
-| Service | Purpose | Free tier |
-|---|---|---|
-| [Telegram](https://telegram.org) | The bot platform | Always free |
-| [Cerebras](https://cloud.cerebras.ai) | AI API — `qwen-3-235b-a22b-instruct-2507` (default), `llama3.1-8b`, and more | 1M tokens/day, 30 req/min |
-| [Upstash](https://upstash.com) | Redis for conversation memory | 10,000 req/day |
-| [Vercel](https://vercel.com) | Hosting the bot | 100GB bandwidth/month |
-| [GitHub](https://github.com) | Source code (Vercel deploys from here) | Always free |
-| [Tavily](https://tavily.com) | Web search *(optional)* | 1,000 searches/month |
+| Service | Purpose | Needed for | Free tier |
+|---|---|---|---|
+| [Telegram](https://telegram.org) | The bot platform | Everything | Always free |
+| [Cerebras](https://cloud.cerebras.ai) | AI API — `qwen-3-235b-a22b-instruct-2507` (default), `llama3.1-8b`, and more | Everything | 1M tokens/day, 30 req/min |
+| [GitHub](https://github.com) | Source code | Everything | Always free |
+| [Upstash](https://upstash.com) | Redis for conversation memory | Deployment *(optional for local)* | 10,000 req/day |
+| [Vercel](https://vercel.com) | Hosting the bot | Deployment | 100GB bandwidth/month |
+| [Tavily](https://tavily.com) | Web search *(optional)* | Extras | 1,000 searches/month |
+| [UptimeRobot](https://uptimerobot.com) | Keep-warm pings *(optional)* | Extras | 50 monitors, 5-min interval |
 
 ---
+
+# Part 1 — Run it on your laptop
+
+You can have the bot replying to your messages on Telegram in about 10 minutes without touching Vercel, Upstash, or any deployment. Perfect for getting started and iterating on changes.
 
 ## Step 1 — Create a Telegram bot
 
@@ -29,7 +34,7 @@ A minimal Python Telegram bot running on Vercel (free tier) with persistent conv
 2. Send `/newbot`
 3. Choose a name (e.g. `My AI Bot`) and a username ending in `bot` (e.g. `myai_bot`)
 4. BotFather will reply with a **bot token** that looks like `7123456789:AAF...`
-5. Save this token — you will need it later
+5. Save this token — you will need it in Step 4
 
 ---
 
@@ -40,24 +45,13 @@ A minimal Python Telegram bot running on Vercel (free tier) with persistent conv
 3. Click your profile icon (top right) → **API Keys**
 4. Click **Create new API key**, give it a name
 5. Copy the key (looks like `csk-...`)
-6. Save it — you will need it later
+6. Save it — you will need it in Step 4
 
 > **Using a different provider?** Any OpenAI-compatible API works. Set `AI_API_KEY` to your provider's key, `AI_BASE_URL` to their base URL, and `AI_MODEL` to the model name.
 
 ---
 
-## Step 3 — Create an Upstash Redis database
-
-1. Go to [upstash.com](https://upstash.com) and sign up (free, no credit card)
-2. Click **Create Database**
-3. Give it a name, choose the region closest to you, click **Create**
-4. On the database page, scroll to **REST API** section
-5. Copy the **UPSTASH_REDIS_REST_URL** and **UPSTASH_REDIS_REST_TOKEN**
-6. Save both — you will need them later
-
----
-
-## Step 4 — Set up GitHub and clone the repo
+## Step 3 — Fork and clone the repo
 
 1. Create a [GitHub account](https://github.com) if you don't have one
 2. Go to the template repo and click **Fork** (top right) to copy it to your account
@@ -70,7 +64,82 @@ cd telegram-vercel-bot
 
 ---
 
-## Step 5 — Create a Vercel account and install the CLI
+## Step 4 — Install dependencies and configure `.env`
+
+Create the virtualenv and install Python dependencies:
+
+```bash
+make install
+```
+
+Then copy the template and fill in the values you saved in Steps 1 and 2:
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` in your editor and set these two lines:
+
+```
+TELEGRAM_BOT_TOKEN=<paste your BotFather token here>
+AI_API_KEY=<paste your Cerebras API key here>
+```
+
+Leave everything else as-is for now. Upstash Redis is optional — without it the bot runs in **stateless mode** (no conversation memory, no rate limit), which is fine for initial testing.
+
+---
+
+## Step 5 — Run the bot locally
+
+```bash
+make run
+```
+
+You should see something like:
+
+```
+Redis not configured — running in stateless mode (no memory, no rate limit).
+Bot @your_bot_username starting in polling mode.
+Send your bot a message on Telegram to try it out.
+Press Ctrl+C to stop.
+```
+
+Open Telegram, find your bot, and send it a message. You'll see each exchange logged in your terminal:
+
+```
+[14:32:15] @alice → @your_bot: hello, who are you?
+[14:32:17] @your_bot → @alice: Hi! I'm an AI assistant powered by Cerebras.
+```
+
+This is the same bot code you'll eventually deploy to Vercel — the only difference is how Telegram delivers messages. Locally we poll; in production Telegram pushes to a webhook. Edit any file in `bot/`, `Ctrl+C` the bot, rerun `make run`, and you'll see your changes immediately.
+
+---
+
+# Part 2 — Deploy it to the internet
+
+Once you have the bot working locally, the next step is to put it on Vercel so it keeps running when your laptop is closed.
+
+## Step 6 — Create an Upstash Redis database *(recommended)*
+
+Upstash gives the bot persistent conversation memory (so it remembers what you said in the previous message) and per-user rate limiting. It's free with no credit card.
+
+1. Go to [upstash.com](https://upstash.com) and sign up
+2. Click **Create Database**
+3. Give it a name, choose the region closest to you, click **Create**
+4. On the database page, scroll to **REST API** section
+5. Copy the **UPSTASH_REDIS_REST_URL** and **UPSTASH_REDIS_REST_TOKEN**
+6. Paste them into your `.env` file, uncommenting the lines:
+
+```
+UPSTASH_REDIS_REST_URL=<paste here>
+UPSTASH_REDIS_REST_TOKEN=<paste here>
+```
+
+Re-run `make run` and you'll see the "stateless mode" message disappear. Memory and rate limiting are now active locally.
+
+---
+
+## Step 7 — Create a Vercel account and install the CLI
 
 1. Go to [vercel.com](https://vercel.com) and sign up using your GitHub account
 2. Install Node.js from [nodejs.org](https://nodejs.org) if you don't have it (required for the Vercel CLI)
@@ -90,7 +159,7 @@ Choose **Continue with GitHub** and follow the browser prompt.
 
 ---
 
-## Step 6 — Deploy to Vercel
+## Step 8 — First deploy
 
 From inside the project folder:
 
@@ -105,42 +174,73 @@ When prompted:
 - **Project name?** → press Enter to accept default
 - **In which directory is your code?** → press Enter (`.`)
 
-After it finishes, Vercel will print your project URL, e.g. `https://vercel-telegram-bot.vercel.app`. Save this URL.
+After it finishes, Vercel will print your project URL, e.g. `https://telegram-vercel-bot.vercel.app`. Save this URL — you need it for the next step.
 
 ---
 
-## Step 7 — Add environment variables to Vercel
+## Step 9 — Add `PROD_URL` to `.env`
 
-Run each command below and paste the corresponding value when prompted:
+Open `.env` and add (or uncomment) the line:
 
-```bash
-vercel env add TELEGRAM_BOT_TOKEN
-vercel env add AI_API_KEY
-vercel env add UPSTASH_REDIS_REST_URL
-vercel env add UPSTASH_REDIS_REST_TOKEN
+```
+PROD_URL=https://<your-vercel-url-from-step-8>
 ```
 
-For each one, select **Production**, **Preview**, and **Development** when asked which environments to apply to.
-
-Then redeploy to apply the variables:
-
-```bash
-vercel --prod
-```
+This tells `make push` which Vercel deployment to point the Telegram webhook at. It's a local-only setting — it's never uploaded to Vercel. Without it, `make push` will refuse to run to prevent accidentally pointing the webhook at the wrong bot.
 
 ---
 
-## Step 7b — Enable web search *(optional)*
+## Step 10 — Sync secrets and register the webhook
 
-The bot can search the web automatically when it needs current information.
+One command handles everything: it pushes every variable from `.env` to Vercel production, then calls Telegram's `setWebhook` against your new deployment URL.
+
+```bash
+make push
+```
+
+You'll see a prompt:
+
+```
+Update Vercel env vars from .env? [y/N]
+```
+
+Answer **`y`** the first time. You'll see each secret pushed one by one, followed by:
+
+```
+Registering Telegram webhook → https://your-bot.vercel.app/api/webhook ... ok
+```
+
+Now redeploy so Vercel picks up the new env vars:
+
+```bash
+make deploy
+```
+
+**Your bot is now live on the internet.** Open Telegram, find your bot, and send it a message. Responses now come from Vercel, not your laptop.
+
+> **Tip:** if you ever re-run `make run` locally, it will remove the production webhook so polling can take over. When you're done and want production back, just run `make push` again and answer `n` to the env prompt — it will re-register the webhook without touching your secrets.
+
+---
+
+# Part 3 — Customize it
+
+## Enable web search *(optional)*
+
+The bot can automatically search the web when it needs current information.
 
 1. Go to [tavily.com](https://tavily.com) and sign up (free, no credit card)
 2. Click **API Keys** → **Create API Key**
-3. Copy the key and add it to Vercel:
+3. Copy the key and add it to `.env`:
+
+```
+TAVILY_API_KEY=<your key>
+```
+
+4. Push to Vercel and redeploy:
 
 ```bash
-vercel env add TAVILY_API_KEY --value "your_key_here" --force --yes
-vercel --prod
+make push    # answer y to sync the new key
+make deploy
 ```
 
 Safe search is always set to **strict**. Without this key the bot works normally — web search is simply disabled.
@@ -149,48 +249,34 @@ When search is used, the bot appends a **Sources:** section with links to every 
 
 ---
 
-## Step 7c — Secure the webhook *(optional but recommended)*
+## Secure the webhook *(optional but recommended)*
 
-Without this, anyone who knows your webhook URL can send fake messages to your bot.
+Without a webhook secret, anyone who knows your webhook URL can send fake messages to your bot.
 
-1. Generate a random secret (any string works, e.g. `openssl rand -hex 16`)
-2. Add it to Vercel:
-
-```bash
-vercel env add WEBHOOK_SECRET --value "your_random_secret" --force --yes
-vercel --prod
-```
-
-3. Re-register the webhook, appending `&secret_token=your_random_secret`:
+1. Generate a random secret:
 
 ```bash
-curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<YOUR_VERCEL_URL>/api/webhook&secret_token=your_random_secret"
+openssl rand -hex 16
 ```
 
-The bot will now reject any request that does not include the correct secret header.
+2. Add it to `.env`:
+
+```
+WEBHOOK_SECRET=<your secret>
+```
+
+3. Push and redeploy — `make push` will automatically include the secret in its `setWebhook` call, so the secret is wired up end-to-end in one step:
+
+```bash
+make push
+make deploy
+```
+
+The bot will now reject any Telegram webhook request that doesn't include the correct secret header.
 
 ---
 
-## Step 8 — Register the Telegram webhook
-
-This tells Telegram where to send messages. Run the command below, replacing the placeholders:
-
-```bash
-curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<YOUR_VERCEL_URL>/api/webhook"
-```
-
-Example:
-```bash
-curl "https://api.telegram.org/bot7123456789:AAF.../setWebhook?url=https://vercel-telegram-bot.vercel.app/api/webhook"
-```
-
-You should see: `{"ok":true,"result":true}`
-
-**Your bot is now live.** Open Telegram, find your bot, and send it a message.
-
----
-
-## Step 9 — Keep the bot warm *(optional)*
+## Keep the bot warm *(optional)*
 
 On Vercel's free tier, serverless functions go to sleep after a few minutes of inactivity. The first message sent to a sleeping bot has to wait for a **cold start** — typically 2–5 seconds of extra latency while Python imports the bot modules. For a chat bot this feels sluggish.
 
@@ -203,11 +289,11 @@ You can mitigate this by pinging the bot's `/api/health` endpoint every few minu
 3. Configure:
    - **Monitor Type:** `HTTP(s)`
    - **Friendly Name:** `Telegram bot health`
-   - **URL:** `https://<YOUR_VERCEL_URL>/api/health`
+   - **URL:** `https://<your-vercel-url>/api/health`
    - **Monitoring Interval:** `5 minutes` (the free-tier minimum)
 4. Click **Create Monitor**
 
-That's it. UptimeRobot will hit `/api/health` every 5 minutes, which is frequent enough to keep Vercel's free-tier instance from going fully cold. You also get a free status page and email alerts if the bot ever goes down, which is handy for demos and classroom use.
+That's it. UptimeRobot will hit `/api/health` every 5 minutes, which is frequent enough to keep Vercel's free-tier instance from going fully cold. You also get a free status page and email alerts if the bot ever goes down.
 
 > **A few caveats:**
 > - This is a workaround, not a guarantee. Vercel may still cold-start occasionally under load-balancer changes.
@@ -216,15 +302,53 @@ That's it. UptimeRobot will hit `/api/health` every 5 minutes, which is frequent
 
 ---
 
+## Add a second AI provider *(optional)*
+
+If you set `HF_SPACE_ID` in `.env`, the bot registers a `/model` command that lets users switch between the default provider (`main`) and a Hugging Face Gradio Space (`hf`). This is useful for demoing multiple models in the same bot or for adding a domain-specific model alongside a general one.
+
+```
+HF_SPACE_ID=username/space-name
+HF_TOKEN=your_hf_token_here   # only for private/gated Spaces
+```
+
+Push and redeploy:
+
+```bash
+make push
+make deploy
+```
+
+Users can now run `/model main` or `/model hf` to switch per-user.
+
+---
+
+## Customization reference
+
+| What to change | How |
+|---|---|
+| Bot personality / instructions | Edit `SYSTEM_PROMPT` in `bot/config.py` |
+| AI model | Set `AI_MODEL` env var (free-tier tested: `qwen-3-235b-a22b-instruct-2507`, `llama3.1-8b`, `gpt-oss-120b`) |
+| AI provider | Set `AI_BASE_URL` env var (any OpenAI-compatible endpoint) |
+| Enable web search | Set `TAVILY_API_KEY` env var (from tavily.com) |
+| Secure the webhook | Set `WEBHOOK_SECRET` env var |
+| Daily message limit | Set `RATE_LIMIT` env var (default `250`) |
+| Add a second provider | Set `HF_SPACE_ID` (and optionally `HF_TOKEN`) — enables `/model` command |
+| Conversation memory length | Edit `MAX_HISTORY` in `bot/config.py` |
+| Add a new command | Add a handler in `bot/handlers.py` |
+
+---
+
+# Reference
+
 ## Project structure
 
 ```
 telegram-vercel-bot/
 ├── api/
-│   └── index.py          # Entry point — Flask app, webhook route, secret verification
+│   └── index.py          # Entry point — Flask app, webhook route, /api/health, secret verification
 ├── bot/
 │   ├── config.py         # All env vars and constants
-│   ├── clients.py        # bot, ai, redis instances
+│   ├── clients.py        # bot, ai, redis instances (redis is optional)
 │   ├── ai.py             # ask_ai orchestration — history, web search injection, source citations
 │   ├── providers.py      # Provider dispatch: OpenAI-compatible (with retry) or HF Gradio space
 │   ├── preferences.py    # Per-user provider preference stored in Redis
@@ -249,7 +373,8 @@ telegram-vercel-bot/
 │       └── ci.yml        # Runs tests on every push and pull request
 ├── .env.example          # Copy to .env for local dev (never commit .env)
 ├── .gitignore
-├── Makefile              # install / test / deploy shortcuts
+├── Makefile              # install / run / test / push / deploy shortcuts
+├── run_local.py          # Local polling entry point (used by `make run`)
 ├── requirements.txt
 ├── vercel.json
 ├── CLAUDE.md             # Agent-readable project guide
@@ -258,46 +383,7 @@ telegram-vercel-bot/
 
 ---
 
-## Local development
-
-The easiest way to run the bot on your laptop — no Vercel, no ngrok, no webhook:
-
-```bash
-make install             # creates .venv and installs dependencies
-cp .env.example .env     # fill in your real values
-make run                 # starts the bot in polling mode
-```
-
-This uses `run_local.py`, which runs the exact same `bot/` modules you'll eventually deploy to Vercel. The difference is only in how Telegram delivers messages: locally we poll, in production Telegram pushes to a webhook. If a webhook is already registered against your bot token, `run_local.py` will warn you and ask before removing it.
-
-If you'd rather run the Flask app directly (e.g. to test the `/api/webhook` route via ngrok), you can still do:
-
-```bash
-.venv/bin/flask --app api/index run --port 3000
-ngrok http 3000
-```
-
-Then re-run the `setWebhook` curl from Step 8 with the `https://...ngrok-free.app` URL.
-
----
-
-## Customisation
-
-| What to change | How |
-|---|---|
-| Bot personality / instructions | Edit `SYSTEM_PROMPT` in `bot/config.py` |
-| AI model | Set `AI_MODEL` env var (free-tier tested: `qwen-3-235b-a22b-instruct-2507`, `llama3.1-8b`, `gpt-oss-120b`) |
-| AI provider | Set `AI_BASE_URL` env var (any OpenAI-compatible endpoint) |
-| Enable web search | Set `TAVILY_API_KEY` env var (from tavily.com) |
-| Secure the webhook | Set `WEBHOOK_SECRET` env var (see Step 7c) |
-| Daily message limit | Set `RATE_LIMIT` env var (default `250`) |
-| Add a second provider | Set `HF_SPACE_ID` env var to a Hugging Face Gradio space — enables `/model` command so users can switch. `HF_TOKEN` is only needed for private/gated spaces |
-| Conversation memory length | Edit `MAX_HISTORY` in `bot/config.py` |
-| Add a new command | Add a handler in `bot/handlers.py` |
-
----
-
-## Running tests locally
+## Make commands
 
 ```bash
 make install    # set up virtual environment and install dependencies
@@ -307,11 +393,9 @@ make push       # push .env secrets to Vercel + register Telegram webhook (promp
 make deploy     # deploy to Vercel production
 ```
 
-> **Tip:** once your `.env` file is filled in, `make push` is a one-shot way to sync secrets and the webhook to your Vercel project. It asks before updating env vars (answer `n` to skip that step and just re-register the webhook — handy after running `make run` locally, which removes the production webhook). If you set `PROD_URL=https://your-bot.vercel.app` in `.env`, `make push` will also register the Telegram webhook for you, so you never have to run `setWebhook` by hand.
-
 ---
 
-## Commands
+## Bot commands
 
 | Command | Description |
 |---|---|
@@ -320,3 +404,32 @@ make deploy     # deploy to Vercel production
 | `/reset` | Clear your conversation history |
 | `/about` | Show model and hosting info |
 | `/model` | Switch AI provider (only available when `HF_SPACE_ID` is set) |
+
+---
+
+## Running tests
+
+```bash
+make test
+```
+
+Tests run offline against mocked Telegram, OpenAI, and Upstash clients — no real API keys or network access required. The same suite runs automatically via GitHub Actions on every push and pull request.
+
+---
+
+## Advanced local development
+
+If you want to test the Flask webhook path directly instead of polling (e.g. to exercise `/api/webhook` and `/api/health`), you can run the Flask app locally and expose it via [ngrok](https://ngrok.com):
+
+```bash
+.venv/bin/flask --app api/index run --port 3000
+ngrok http 3000
+```
+
+Then re-register the webhook against your ngrok URL:
+
+```bash
+curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<your-ngrok-url>/api/webhook"
+```
+
+This is usually only needed when debugging Flask-level concerns; for day-to-day development, `make run` is simpler.
