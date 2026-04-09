@@ -64,8 +64,8 @@ A minimal Python Telegram bot running on Vercel (free tier) with persistent conv
 3. Clone your fork to your computer:
 
 ```bash
-git clone https://github.com/<your-username>/VercelTelegramBot.git
-cd VercelTelegramBot
+git clone https://github.com/<your-username>/telegram-vercel-bot.git
+cd telegram-vercel-bot
 ```
 
 ---
@@ -193,7 +193,7 @@ You should see: `{"ok":true,"result":true}`
 ## Project structure
 
 ```
-VercelTelegramBot/
+telegram-vercel-bot/
 ├── api/
 │   └── index.py          # Entry point — Flask app, webhook route, secret verification
 ├── bot/

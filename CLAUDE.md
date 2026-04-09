@@ -15,7 +15,7 @@ A serverless Telegram bot template built for students. It runs on Vercel's free 
 ## Project structure
 
 ```
-VercelTelegramBot/
+telegram-vercel-bot/
 ├── api/
 │   └── index.py          # Vercel entrypoint — Flask app, webhook route, /api/health, secret verification
 ├── bot/

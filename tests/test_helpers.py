@@ -41,31 +41,13 @@ def test_should_respond_private_chat():
         assert should_respond(make_message(chat_type="private")) is True
 
 
-def test_should_respond_group_no_mention():
+def test_should_respond_group_always_true():
+    """should_respond now returns True unconditionally — bot replies to every message."""
     with patch("bot.helpers.BOT_INFO", MagicMock(id=42, username="testbot")):
         from bot.helpers import should_respond
-        assert should_respond(make_message(chat_type="group", text="just chatting")) is False
-
-
-def test_should_respond_group_with_mention():
-    with patch("bot.helpers.BOT_INFO", MagicMock(id=42, username="testbot")):
-        from bot.helpers import should_respond
-        msg = make_message(chat_type="group", text="hey @testbot what is Python?")
-        assert should_respond(msg) is True
-
-
-def test_should_respond_group_reply_to_bot():
-    with patch("bot.helpers.BOT_INFO", MagicMock(id=42, username="testbot")):
-        from bot.helpers import should_respond
-        msg = make_message(chat_type="group", reply_from_id=42)
-        assert should_respond(msg) is True
-
-
-def test_should_respond_group_reply_to_other_user():
-    with patch("bot.helpers.BOT_INFO", MagicMock(id=42, username="testbot")):
-        from bot.helpers import should_respond
-        msg = make_message(chat_type="group", reply_from_id=99)
-        assert should_respond(msg) is False
+        assert should_respond(make_message(chat_type="group", text="just chatting")) is True
+        assert should_respond(make_message(chat_type="group", text="hey @testbot")) is True
+        assert should_respond(make_message(chat_type="group", reply_from_id=99)) is True
 
 
 # ── keep_typing ────────────────────────────────────────────────────────────────
