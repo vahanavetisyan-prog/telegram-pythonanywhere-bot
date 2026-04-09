@@ -1,9 +1,9 @@
 from unittest.mock import patch, MagicMock
 
 
-# ── _call_openai retry logic ──────────────────────────────────────────────────
+# ── _call_main retry logic ──────────────────────────────────────────────────
 
-def test_call_openai_retries_on_failure():
+def test_call_main_retries_on_failure():
     mock_response = MagicMock()
     mock_response.choices[0].message.content = "hello"
     with patch("bot.providers.ai") as mock_ai, \
@@ -12,34 +12,34 @@ def test_call_openai_retries_on_failure():
             Exception("network error"),
             mock_response,
         ]
-        from bot.providers import _call_openai
-        result = _call_openai([{"role": "user", "content": "hi"}])
+        from bot.providers import _call_main
+        result = _call_main([{"role": "user", "content": "hi"}])
         assert result == "hello"
         assert mock_ai.chat.completions.create.call_count == 2
         mock_sleep.assert_called_once_with(1)
 
 
-def test_call_openai_raises_after_max_retries():
+def test_call_main_raises_after_max_retries():
     with patch("bot.providers.ai") as mock_ai, \
          patch("bot.providers.time.sleep"):
         mock_ai.chat.completions.create.side_effect = Exception("persistent")
-        from bot.providers import _call_openai
+        from bot.providers import _call_main
         try:
-            _call_openai([{"role": "user", "content": "hi"}], retries=3)
+            _call_main([{"role": "user", "content": "hi"}], retries=3)
             assert False, "Should have raised"
         except Exception as e:
             assert str(e) == "persistent"
         assert mock_ai.chat.completions.create.call_count == 3
 
 
-def test_call_openai_succeeds_first_try():
+def test_call_main_succeeds_first_try():
     mock_response = MagicMock()
     mock_response.choices[0].message.content = "ok"
     with patch("bot.providers.ai") as mock_ai, \
          patch("bot.providers.time.sleep") as mock_sleep:
         mock_ai.chat.completions.create.return_value = mock_response
-        from bot.providers import _call_openai
-        assert _call_openai([{"role": "user", "content": "hi"}]) == "ok"
+        from bot.providers import _call_main
+        assert _call_main([{"role": "user", "content": "hi"}]) == "ok"
         mock_sleep.assert_not_called()
 
 
@@ -124,21 +124,21 @@ def test_call_hf_no_retry_on_failure():
 
 # ── generate dispatch ─────────────────────────────────────────────────────────
 
-def test_generate_dispatches_to_openai():
-    with patch("bot.providers.get_provider", return_value="openai"), \
-         patch("bot.providers._call_openai", return_value="openai reply") as mock_openai, \
+def test_generate_dispatches_to_main():
+    with patch("bot.providers.get_provider", return_value="main"), \
+         patch("bot.providers._call_main", return_value="main reply") as mock_main, \
          patch("bot.providers._call_hf") as mock_hf:
         from bot.providers import generate
-        assert generate(123, [{"role": "user", "content": "hi"}]) == "openai reply"
-        mock_openai.assert_called_once()
+        assert generate(123, [{"role": "user", "content": "hi"}]) == "main reply"
+        mock_main.assert_called_once()
         mock_hf.assert_not_called()
 
 
 def test_generate_dispatches_to_hf():
     with patch("bot.providers.get_provider", return_value="hf"), \
-         patch("bot.providers._call_openai") as mock_openai, \
+         patch("bot.providers._call_main") as mock_main, \
          patch("bot.providers._call_hf", return_value="hf reply") as mock_hf:
         from bot.providers import generate
         assert generate(123, [{"role": "user", "content": "hi"}]) == "hf reply"
         mock_hf.assert_called_once()
-        mock_openai.assert_not_called()
+        mock_main.assert_not_called()

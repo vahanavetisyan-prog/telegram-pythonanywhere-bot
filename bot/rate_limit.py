@@ -4,6 +4,8 @@ from bot.config import RATE_LIMIT
 
 
 def is_rate_limited(user_id: int) -> bool:
+    if redis is None:
+        return False  # no rate limiting in stateless mode
     try:
         key = f"rate:{user_id}:{date.today()}"
         count = redis.incr(key)

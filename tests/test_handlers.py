@@ -102,13 +102,13 @@ def _import_cmd_model_with_hf_enabled():
 def test_cmd_model_no_args_shows_current():
     cmd_model = _import_cmd_model_with_hf_enabled()
     assert cmd_model is not None
-    with patch("bot.handlers.get_provider", return_value="openai"), \
+    with patch("bot.handlers.get_provider", return_value="main"), \
          patch("bot.handlers.bot") as mock_bot:
         msg = make_message(text="/model")
         cmd_model(msg)
         sent = mock_bot.send_message.call_args[0][1]
-        assert "Current provider: openai" in sent
-        assert "/model openai" in sent
+        assert "Current provider: main" in sent
+        assert "/model main" in sent
         assert "/model hf" in sent
 
 
@@ -124,15 +124,15 @@ def test_cmd_model_switch_to_hf():
         assert "Armenian" in sent
 
 
-def test_cmd_model_switch_to_openai():
+def test_cmd_model_switch_to_main():
     cmd_model = _import_cmd_model_with_hf_enabled()
     with patch("bot.handlers.set_provider", return_value=True) as mock_set, \
          patch("bot.handlers.bot") as mock_bot:
-        msg = make_message(text="/model openai")
+        msg = make_message(text="/model main")
         cmd_model(msg)
-        mock_set.assert_called_once_with(123, "openai")
+        mock_set.assert_called_once_with(123, "main")
         sent = mock_bot.send_message.call_args[0][1]
-        assert "openai" in sent
+        assert "Main" in sent
 
 
 def test_cmd_model_invalid_choice():

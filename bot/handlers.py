@@ -1,3 +1,5 @@
+import os
+from datetime import datetime
 from bot.clients import bot, BOT_INFO
 from bot.config import MODEL, RATE_LIMIT, HF_SPACE_ID
 from bot.ai import ask_ai
@@ -5,6 +7,35 @@ from bot.helpers import keep_typing, send_reply, should_respond
 from bot.history import clear_history
 from bot.preferences import get_provider, set_provider
 from bot.rate_limit import is_rate_limited
+
+# Verbose console logging for local dev and teaching. Enabled by
+# BOT_VERBOSE_LOG=1 (run_local.py sets this automatically). Prints one
+# line per inbound/outbound message so kids and teachers can see the
+# conversation flow in their terminal while the bot is running.
+VERBOSE_LOG = os.environ.get("BOT_VERBOSE_LOG", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _log(message, direction: str, text: str) -> None:
+    """Print a one-line trace of a message in verbose mode.
+
+    direction is "in" (user → bot) or "out" (bot → user). Text is
+    truncated to 500 characters so long AI replies don't flood the
+    terminal. Newlines are collapsed for single-line readability.
+    """
+    if not VERBOSE_LOG:
+        return
+    user = message.from_user
+    user_name = f"@{user.username}" if user.username else (user.first_name or f"user:{user.id}")
+    bot_name = f"@{BOT_INFO.username}"
+    snippet = (text or "").replace("\n", " ").replace("\r", " ")
+    if len(snippet) > 500:
+        snippet = snippet[:500] + "..."
+    if direction == "in":
+        sender, receiver = user_name, bot_name
+    else:
+        sender, receiver = bot_name, user_name
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"[{ts}] {sender} → {receiver}: {snippet}", flush=True)
 
 
 @bot.message_handler(commands=["start"])
@@ -35,7 +66,7 @@ def cmd_reset(message):
 def cmd_about(message):
     if HF_SPACE_ID:
         provider = get_provider(message.from_user.id)
-        model_line = f"{MODEL} (openai)" if provider == "openai" else f"{HF_SPACE_ID} (hf)"
+        model_line = f"{MODEL} (main)" if provider == "main" else f"{HF_SPACE_ID} (hf)"
     else:
         model_line = MODEL
     bot.send_message(message.chat.id, f"Model  : {model_line}\nStorage: Upstash Redis\nHosting: Vercel")
@@ -51,13 +82,13 @@ if HF_SPACE_ID:
                 message.chat.id,
                 f"Current provider: {current}\n\n"
                 "Options:\n"
-                "/model openai — Cerebras (fast, multilingual, with memory)\n"
+                "/model main — Cerebras (fast, multilingual, with memory)\n"
                 "/model hf — ArmGPT (Armenian only, slow, no memory)",
             )
             return
         choice = parts[1].strip().lower()
-        if choice not in ("openai", "hf"):
-            bot.send_message(message.chat.id, "Invalid choice. Use: /model openai or /model hf")
+        if choice not in ("main", "hf"):
+            bot.send_message(message.chat.id, "Invalid choice. Use: /model main or /model hf")
             return
         if not set_provider(message.from_user.id, choice):
             bot.send_message(message.chat.id, "Could not save preference. Try again later.")
@@ -71,21 +102,26 @@ if HF_SPACE_ID:
                 "and it does not understand English. Replies take ~30-60s and there is no memory.",
             )
         else:
-            bot.send_message(message.chat.id, "Switched to openai (Cerebras).")
+            bot.send_message(message.chat.id, "Switched to Main Provider.")
 
 
 @bot.message_handler(func=lambda m: True)
 def handle_message(message):
     if not should_respond(message):
         return
-    if is_rate_limited(message.from_user.id):
-        bot.send_message(message.chat.id, f"You've reached the daily limit of {RATE_LIMIT} messages. Try again tomorrow.")
-        return
     text = (message.text or "").replace(f"@{BOT_INFO.username}", "").strip()
+    _log(message, "in", text)
+    if is_rate_limited(message.from_user.id):
+        limit_msg = f"You've reached the daily limit of {RATE_LIMIT} messages. Try again tomorrow."
+        bot.send_message(message.chat.id, limit_msg)
+        _log(message, "out", f"[rate limited] {limit_msg}")
+        return
     try:
         with keep_typing(message.chat.id):
             reply = ask_ai(message.from_user.id, text)
         send_reply(message, reply)
+        _log(message, "out", reply)
     except Exception as e:
         print(f"Error in handle_message: {e}")
         bot.send_message(message.chat.id, "Something went wrong. Please try again.")
+        _log(message, "out", f"[error] {e}")

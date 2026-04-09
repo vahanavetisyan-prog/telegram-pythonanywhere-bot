@@ -1,15 +1,18 @@
 from bot.clients import redis
 from bot.config import DEFAULT_PROVIDER, HF_SPACE_ID
 
-VALID_PROVIDERS = ("openai", "hf")
+VALID_PROVIDERS = ("main", "hf")
 
 
 def get_provider(user_id: int) -> str:
     """Return the user's chosen provider, or DEFAULT_PROVIDER.
 
-    Falls back to DEFAULT_PROVIDER if Redis is down, the user has no saved
-    preference, or the saved preference is "hf" but HF_SPACE_ID is not configured.
+    Falls back to DEFAULT_PROVIDER if Redis is not configured, Redis is
+    down, the user has no saved preference, or the saved preference is
+    "hf" but HF_SPACE_ID is not configured.
     """
+    if redis is None:
+        return DEFAULT_PROVIDER
     try:
         value = redis.get(f"provider:{user_id}")
     except Exception as e:
@@ -25,6 +28,8 @@ def get_provider(user_id: int) -> str:
 def set_provider(user_id: int, provider: str) -> bool:
     """Save the user's provider choice. Returns True on success."""
     if provider not in VALID_PROVIDERS:
+        return False
+    if redis is None:
         return False
     try:
         redis.set(f"provider:{user_id}", provider)

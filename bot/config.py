@@ -12,11 +12,13 @@ MODEL       = os.environ.get("AI_MODEL", "llama3.1-8b").strip()
 # Hugging Face provider (optional) — when set, users can switch via /model
 HF_SPACE_ID = os.environ.get("HF_SPACE_ID", "").strip()
 HF_TOKEN    = os.environ.get("HF_TOKEN", "").strip()  # optional, for private spaces
-DEFAULT_PROVIDER = "openai"
+DEFAULT_PROVIDER = "main"
 
-# Redis
-UPSTASH_URL   = os.environ["UPSTASH_REDIS_REST_URL"].strip()
-UPSTASH_TOKEN = os.environ["UPSTASH_REDIS_REST_TOKEN"].strip()
+# Redis — optional. When unset, history / rate limiting / preferences /
+# search-cache all degrade gracefully to stateless behavior. Good for
+# teaching and local dev where you don't want to wire up Upstash yet.
+UPSTASH_URL   = os.environ.get("UPSTASH_REDIS_REST_URL", "").strip()
+UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "").strip()
 
 # Search
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()

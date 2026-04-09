@@ -1,6 +1,6 @@
 # Vercel Telegram Bot — Starter Template
 
-A minimal Python Telegram bot running on Vercel (free tier) with persistent conversation memory via Upstash Redis and AI powered by Cerebras (llama3.1-8b).
+A minimal Python Telegram bot running on Vercel (free tier) with persistent conversation memory via Upstash Redis and AI powered by Cerebras (defaults to `qwen-3-235b-a22b-instruct-2507`, with `llama3.1-8b` and other models available on the free tier).
 
 **Stack:** Python · Flask · pyTelegramBotAPI · OpenAI SDK · Upstash Redis · Vercel
 
@@ -15,7 +15,7 @@ A minimal Python Telegram bot running on Vercel (free tier) with persistent conv
 | Service | Purpose | Free tier |
 |---|---|---|
 | [Telegram](https://telegram.org) | The bot platform | Always free |
-| [Cerebras](https://cloud.cerebras.ai) | AI API (llama3.1-8b) | 1M tokens/day, 30 req/min |
+| [Cerebras](https://cloud.cerebras.ai) | AI API — `qwen-3-235b-a22b-instruct-2507` (default), `llama3.1-8b`, and more | 1M tokens/day, 30 req/min |
 | [Upstash](https://upstash.com) | Redis for conversation memory | 10,000 req/day |
 | [Vercel](https://vercel.com) | Hosting the bot | 100GB bandwidth/month |
 | [GitHub](https://github.com) | Source code (Vercel deploys from here) | Always free |
@@ -190,6 +190,32 @@ You should see: `{"ok":true,"result":true}`
 
 ---
 
+## Step 9 — Keep the bot warm *(optional)*
+
+On Vercel's free tier, serverless functions go to sleep after a few minutes of inactivity. The first message sent to a sleeping bot has to wait for a **cold start** — typically 2–5 seconds of extra latency while Python imports the bot modules. For a chat bot this feels sluggish.
+
+You can mitigate this by pinging the bot's `/api/health` endpoint every few minutes so Vercel keeps a warm instance ready. The bot ships with this endpoint specifically for uptime checks — it returns `OK` 200 without touching Redis, Telegram, or the AI provider, so it's free and safe to hit frequently.
+
+**Set it up with [UptimeRobot](https://uptimerobot.com) (free, no credit card):**
+
+1. Sign up at [uptimerobot.com](https://uptimerobot.com)
+2. Click **+ New monitor**
+3. Configure:
+   - **Monitor Type:** `HTTP(s)`
+   - **Friendly Name:** `Telegram bot health`
+   - **URL:** `https://<YOUR_VERCEL_URL>/api/health`
+   - **Monitoring Interval:** `5 minutes` (the free-tier minimum)
+4. Click **Create Monitor**
+
+That's it. UptimeRobot will hit `/api/health` every 5 minutes, which is frequent enough to keep Vercel's free-tier instance from going fully cold. You also get a free status page and email alerts if the bot ever goes down, which is handy for demos and classroom use.
+
+> **A few caveats:**
+> - This is a workaround, not a guarantee. Vercel may still cold-start occasionally under load-balancer changes.
+> - Keeping the bot warm consumes free-tier invocations. 5-minute pings = ~8,640 invocations/month, well within Vercel Hobby's limit (100k/month), but something to be aware of if you combine this with heavy usage.
+> - Respect [Vercel's fair use policy](https://vercel.com/docs/limits) — don't run aggressive sub-minute pings on the free tier.
+
+---
+
 ## Project structure
 
 ```
@@ -234,19 +260,24 @@ telegram-vercel-bot/
 
 ## Local development
 
+The easiest way to run the bot on your laptop — no Vercel, no ngrok, no webhook:
+
 ```bash
 make install             # creates .venv and installs dependencies
 cp .env.example .env     # fill in your real values
-.venv/bin/flask --app api/index run --port 3000
+make run                 # starts the bot in polling mode
 ```
 
-To test with Telegram locally, install [ngrok](https://ngrok.com), then:
+This uses `run_local.py`, which runs the exact same `bot/` modules you'll eventually deploy to Vercel. The difference is only in how Telegram delivers messages: locally we poll, in production Telegram pushes to a webhook. If a webhook is already registered against your bot token, `run_local.py` will warn you and ask before removing it.
+
+If you'd rather run the Flask app directly (e.g. to test the `/api/webhook` route via ngrok), you can still do:
 
 ```bash
+.venv/bin/flask --app api/index run --port 3000
 ngrok http 3000
 ```
 
-Copy the `https://...ngrok-free.app` URL and re-run the `setWebhook` curl from Step 8 with that URL instead.
+Then re-run the `setWebhook` curl from Step 8 with the `https://...ngrok-free.app` URL.
 
 ---
 
@@ -255,7 +286,7 @@ Copy the `https://...ngrok-free.app` URL and re-run the `setWebhook` curl from S
 | What to change | How |
 |---|---|
 | Bot personality / instructions | Edit `SYSTEM_PROMPT` in `bot/config.py` |
-| AI model | Set `AI_MODEL` env var (e.g. `llama3.1-8b`, `gpt-oss-120b`) |
+| AI model | Set `AI_MODEL` env var (free-tier tested: `qwen-3-235b-a22b-instruct-2507`, `llama3.1-8b`, `gpt-oss-120b`) |
 | AI provider | Set `AI_BASE_URL` env var (any OpenAI-compatible endpoint) |
 | Enable web search | Set `TAVILY_API_KEY` env var (from tavily.com) |
 | Secure the webhook | Set `WEBHOOK_SECRET` env var (see Step 7c) |
@@ -269,10 +300,14 @@ Copy the `https://...ngrok-free.app` URL and re-run the `setWebhook` curl from S
 ## Running tests locally
 
 ```bash
-make install   # set up virtual environment and install dependencies
-make test      # run all tests
-make deploy    # deploy to Vercel production
+make install    # set up virtual environment and install dependencies
+make run        # run the bot locally via polling (no Vercel needed, reads .env)
+make test       # run all tests
+make push       # push .env secrets to Vercel + register Telegram webhook (prompts before each step)
+make deploy     # deploy to Vercel production
 ```
+
+> **Tip:** once your `.env` file is filled in, `make push` is a one-shot way to sync secrets and the webhook to your Vercel project. It asks before updating env vars (answer `n` to skip that step and just re-register the webhook — handy after running `make run` locally, which removes the production webhook). If you set `PROD_URL=https://your-bot.vercel.app` in `.env`, `make push` will also register the Telegram webhook for you, so you never have to run `setWebhook` by hand.
 
 ---
 

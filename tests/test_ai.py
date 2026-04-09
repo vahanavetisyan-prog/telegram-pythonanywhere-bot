@@ -34,7 +34,7 @@ def test_ask_ai_returns_reply():
     with patch("bot.ai.generate", return_value="Hello there!"), \
          patch("bot.ai.get_history", return_value=[]), \
          patch("bot.ai.save_history"), \
-         patch("bot.ai.get_provider", return_value="openai"):
+         patch("bot.ai.get_provider", return_value="main"):
         from bot.ai import ask_ai
         reply = ask_ai(123, "hi")
         assert reply == "Hello there!"
@@ -44,7 +44,7 @@ def test_ask_ai_saves_history():
     with patch("bot.ai.generate", return_value="reply"), \
          patch("bot.ai.get_history", return_value=[]), \
          patch("bot.ai.save_history") as mock_save, \
-         patch("bot.ai.get_provider", return_value="openai"):
+         patch("bot.ai.get_provider", return_value="main"):
         from bot.ai import ask_ai
         ask_ai(123, "hi")
         mock_save.assert_called_once()
@@ -58,7 +58,7 @@ def test_ask_ai_appends_sources_when_search_used():
     with patch("bot.ai.generate", return_value="Here is the news."), \
          patch("bot.ai.get_history", return_value=[]), \
          patch("bot.ai.save_history"), \
-         patch("bot.ai.get_provider", return_value="openai"), \
+         patch("bot.ai.get_provider", return_value="main"), \
          patch("bot.ai.TAVILY_API_KEY", "fake_key"), \
          patch("bot.ai.needs_search", return_value=True), \
          patch("bot.search.web_search", return_value=("search text", sources)):
@@ -72,7 +72,7 @@ def test_ask_ai_no_sources_for_general_question():
     with patch("bot.ai.generate", return_value="Paris."), \
          patch("bot.ai.get_history", return_value=[]), \
          patch("bot.ai.save_history"), \
-         patch("bot.ai.get_provider", return_value="openai"):
+         patch("bot.ai.get_provider", return_value="main"):
         from bot.ai import ask_ai
         reply = ask_ai(123, "what is the capital of France?")
         assert "Sources" not in reply
@@ -98,7 +98,7 @@ def test_ask_ai_passes_user_id_to_generate():
     with patch("bot.ai.generate", return_value="hi") as mock_gen, \
          patch("bot.ai.get_history", return_value=[]), \
          patch("bot.ai.save_history"), \
-         patch("bot.ai.get_provider", return_value="openai"):
+         patch("bot.ai.get_provider", return_value="main"):
         from bot.ai import ask_ai
         ask_ai(456, "hello")
         assert mock_gen.call_args[0][0] == 456

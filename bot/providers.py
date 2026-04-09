@@ -13,7 +13,7 @@ HF_TEMPERATURE = 0.6
 HF_TOP_K = 30
 
 
-def _call_openai(messages: list, retries: int = 3):
+def _call_main(messages: list, retries: int = 3):
     """Call the OpenAI-compatible API with exponential backoff retry."""
     for attempt in range(retries):
         try:
@@ -76,4 +76,4 @@ def generate(user_id: int, messages: list) -> str:
     provider = get_provider(user_id)
     if provider == "hf":
         return _call_hf(messages)
-    return _call_openai(messages)
+    return _call_main(messages)
