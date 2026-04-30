@@ -15,17 +15,22 @@ def web_search(query: str, count: int = 5) -> tuple[str, list[dict]]:
     {"title": ..., "url": ...} dicts for citation.
     """
     cache_key = f"search:{hashlib.md5(query.lower().encode()).hexdigest()}"
-    try:
-        cached = redis.get(cache_key)
-        if isinstance(cached, str) and cached:
-            data = json.loads(cached)
-            return data["text"], data["sources"]
-    except Exception:
-        pass
+    if redis is not None:
+        try:
+            cached = redis.get(cache_key)
+            if isinstance(cached, str) and cached:
+                data = json.loads(cached)
+                return data["text"], data["sources"]
+        except Exception as e:
+            print(f"Redis read error (search cache): {e}")
 
     response = requests.post(
         TAVILY_ENDPOINT,
-        json={"api_key": TAVILY_API_KEY, "query": query, "max_results": count},
+        json={
+            "api_key": TAVILY_API_KEY,
+            "query": query,
+            "max_results": count,
+        },
         timeout=10,
     )
     response.raise_for_status()
@@ -36,13 +41,17 @@ def web_search(query: str, count: int = 5) -> tuple[str, list[dict]]:
 
     sources = [{"title": r["title"], "url": r["url"]} for r in results]
     formatted = "\n\n".join(
-        f"{r['title']}\n{r.get('content', '')}\n{r['url']}"
-        for r in results
+        f"{r['title']}\n{r.get('content', '')}\n{r['url']}" for r in results
     )
 
-    try:
-        redis.set(cache_key, json.dumps({"text": formatted, "sources": sources}), ex=CACHE_TTL)
-    except Exception:
-        pass
+    if redis is not None:
+        try:
+            redis.set(
+                cache_key,
+                json.dumps({"text": formatted, "sources": sources}),
+                ex=CACHE_TTL,
+            )
+        except Exception as e:
+            print(f"Redis write error (search cache): {e}")
 
     return formatted, sources

@@ -243,7 +243,7 @@ make push    # answer y to sync the new key
 make deploy
 ```
 
-Safe search is always set to **strict**. Without this key the bot works normally — web search is simply disabled.
+Without this key the bot works normally — web search is simply disabled.
 
 When search is used, the bot appends a **Sources:** section with links to every page it used. Results are cached for 10 minutes, so repeated questions don't burn your quota.
 

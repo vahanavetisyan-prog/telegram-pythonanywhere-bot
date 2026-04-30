@@ -57,7 +57,7 @@ push:
 		exit 1; \
 	}
 	@printf "Update Vercel env vars from .env? [y/N] "; read push_ans; case "$$push_ans" in y|Y|yes|YES) push_envs=1 ;; *) push_envs=0 ;; esac; \
-	count=0; failed=0; tg_token=""; wh_secret=""; prod_url=""; \
+	count=0; failed=0; webhook_failed=0; tg_token=""; wh_secret=""; prod_url=""; \
 	if [ "$$push_envs" = "1" ]; then \
 		echo ""; \
 		echo "Pushing .env to Vercel production (existing values will be OVERWRITTEN)..."; \
@@ -69,6 +69,8 @@ push:
 		line=$$(printf '%s' "$$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$$//'); \
 		case "$$line" in ''|\#*) continue ;; esac; \
 		key=$${line%%=*}; value=$${line#*=}; \
+		key=$$(printf '%s' "$$key" | sed 's/[[:space:]]*$$//'); \
+		value=$$(printf '%s' "$$value" | sed 's/^[[:space:]]*//'); \
 		case "$$value" in \
 			\"*\") value=$${value#\"}; value=$${value%\"} ;; \
 			\'*\') value=$${value#\'}; value=$${value%\'} ;; \
@@ -96,7 +98,11 @@ push:
 	fi; \
 	echo ""; \
 	if [ -z "$$tg_token" ]; then \
-		echo "Skipping webhook registration: TELEGRAM_BOT_TOKEN not set in .env."; \
+		echo "ERROR: TELEGRAM_BOT_TOKEN not set in .env — cannot register webhook."; \
+		webhook_failed=1; \
+	elif [ -z "$$prod_url" ]; then \
+		echo "ERROR: PROD_URL is empty after parsing .env — cannot register webhook."; \
+		webhook_failed=1; \
 	else \
 		prod_url=$${prod_url%/}; \
 		webhook_url="$$prod_url/api/webhook"; \
@@ -111,10 +117,11 @@ push:
 		fi; \
 		case "$$response" in \
 			*'"ok":true'*) echo "ok" ;; \
-			*) echo "FAILED"; echo "  Telegram response: $$response" ;; \
+			*) echo "FAILED"; echo "  Telegram response: $$response"; webhook_failed=1 ;; \
 		esac; \
 	fi; \
 	if [ "$$push_envs" = "1" ]; then \
 		echo ""; \
 		echo "Run 'make deploy' to redeploy production with the new values."; \
-	fi
+	fi; \
+	if [ "$$failed" -ne 0 ] || [ "$$webhook_failed" -ne 0 ]; then exit 1; fi

@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from bot.clients import bot, BOT_INFO
+from bot.clients import bot, BOT_INFO, redis
 from bot.config import MODEL, RATE_LIMIT, HF_SPACE_ID
 from bot.ai import ask_ai
 from bot.helpers import keep_typing, send_reply, should_respond
@@ -12,7 +12,12 @@ from bot.rate_limit import is_rate_limited
 # BOT_VERBOSE_LOG=1 (run_local.py sets this automatically). Prints one
 # line per inbound/outbound message so kids and teachers can see the
 # conversation flow in their terminal while the bot is running.
-VERBOSE_LOG = os.environ.get("BOT_VERBOSE_LOG", "").strip().lower() in ("1", "true", "yes", "on")
+VERBOSE_LOG = os.environ.get("BOT_VERBOSE_LOG", "").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 
 def _log(message, direction: str, text: str) -> None:
@@ -25,7 +30,9 @@ def _log(message, direction: str, text: str) -> None:
     if not VERBOSE_LOG:
         return
     user = message.from_user
-    user_name = f"@{user.username}" if user.username else (user.first_name or f"user:{user.id}")
+    user_name = (
+        f"@{user.username}" if user.username else (user.first_name or f"user:{user.id}")
+    )
     bot_name = f"@{BOT_INFO.username}"
     snippet = (text or "").replace("\n", " ").replace("\r", " ")
     if len(snippet) > 500:
@@ -40,7 +47,10 @@ def _log(message, direction: str, text: str) -> None:
 
 @bot.message_handler(commands=["start"])
 def cmd_start(message):
-    bot.send_message(message.chat.id, "Hello! I'm your AI assistant. Send me a message to get started.\n\nUse /help to see available commands.")
+    bot.send_message(
+        message.chat.id,
+        "Hello! I'm your AI assistant. Send me a message to get started.\n\nUse /help to see available commands.",
+    )
 
 
 @bot.message_handler(commands=["help"])
@@ -69,10 +79,15 @@ def cmd_about(message):
         model_line = f"{MODEL} (main)" if provider == "main" else f"{HF_SPACE_ID} (hf)"
     else:
         model_line = MODEL
-    bot.send_message(message.chat.id, f"Model  : {model_line}\nStorage: Upstash Redis\nHosting: Vercel")
+    storage_line = "Upstash Redis" if redis is not None else "stateless (no memory)"
+    bot.send_message(
+        message.chat.id,
+        f"Model  : {model_line}\nStorage: {storage_line}\nHosting: Vercel",
+    )
 
 
 if HF_SPACE_ID:
+
     @bot.message_handler(commands=["model"])
     def cmd_model(message):
         parts = (message.text or "").split(maxsplit=1)
@@ -88,10 +103,14 @@ if HF_SPACE_ID:
             return
         choice = parts[1].strip().lower()
         if choice not in ("main", "hf"):
-            bot.send_message(message.chat.id, "Invalid choice. Use: /model main or /model hf")
+            bot.send_message(
+                message.chat.id, "Invalid choice. Use: /model main or /model hf"
+            )
             return
         if not set_provider(message.from_user.id, choice):
-            bot.send_message(message.chat.id, "Could not save preference. Try again later.")
+            bot.send_message(
+                message.chat.id, "Could not save preference. Try again later."
+            )
             return
         if choice == "hf":
             bot.send_message(
@@ -105,11 +124,15 @@ if HF_SPACE_ID:
             bot.send_message(message.chat.id, "Switched to Main Provider.")
 
 
-@bot.message_handler(func=lambda m: True)
+@bot.message_handler(content_types=["text"], func=lambda m: True)
 def handle_message(message):
     if not should_respond(message):
         return
     text = (message.text or "").replace(f"@{BOT_INFO.username}", "").strip()
+    if not text:
+        # Edited messages, forwards, or stickers-with-empty-caption can
+        # arrive with no usable text. Don't burn rate-limit / AI calls on them.
+        return
     _log(message, "in", text)
     if is_rate_limited(message.from_user.id):
         limit_msg = f"You've reached the daily limit of {RATE_LIMIT} messages. Try again tomorrow."

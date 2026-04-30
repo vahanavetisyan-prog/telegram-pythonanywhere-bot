@@ -1,7 +1,7 @@
 import re
 import time
 from bot.clients import ai
-from bot.config import MODEL, HF_SPACE_ID, HF_TOKEN
+from bot.config import AI_REQUEST_TIMEOUT, AI_RETRIES, MODEL, HF_SPACE_ID, HF_TOKEN
 from bot.preferences import get_provider
 
 # HF Gradio knobs — hardcoded defaults for ArmGPT
@@ -13,17 +13,33 @@ HF_TEMPERATURE = 0.6
 HF_TOP_K = 30
 
 
-def _call_main(messages: list, retries: int = 3):
-    """Call the OpenAI-compatible API with exponential backoff retry."""
+def _call_main(messages: list, retries: int = AI_RETRIES):
+    """Call the OpenAI-compatible API with bounded retries.
+
+    Each attempt is capped by AI_REQUEST_TIMEOUT and the per-attempt timeout
+    is dynamically reduced if the wall-clock budget is shrinking, so total
+    elapsed time stays under Vercel's 60s function cap even on the worst path.
+    """
+    deadline = time.monotonic() + AI_REQUEST_TIMEOUT * retries + retries
     for attempt in range(retries):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("AI provider deadline exceeded")
+        timeout = min(AI_REQUEST_TIMEOUT, remaining)
         try:
-            response = ai.chat.completions.create(model=MODEL, messages=messages)
+            response = ai.chat.completions.create(
+                model=MODEL,
+                messages=messages,
+                timeout=timeout,
+            )
             return response.choices[0].message.content
         except Exception as e:
             if attempt == retries - 1:
                 raise
-            wait = 2 ** attempt  # 1s, 2s
-            print(f"AI call failed (attempt {attempt + 1}/{retries}): {e} — retrying in {wait}s")
+            wait = min(2**attempt, max(0, deadline - time.monotonic()))
+            print(
+                f"AI call failed (attempt {attempt + 1}/{retries}): {e} — retrying in {wait}s"
+            )
             time.sleep(wait)
 
 
@@ -67,7 +83,7 @@ def _call_hf(messages: list) -> str:
     text = _strip_html(str(text))
     # Remove the echoed prompt if the model includes it
     if text.startswith(prompt):
-        text = text[len(prompt):].strip()
+        text = text[len(prompt) :].strip()
     return text or "(empty response from ArmGPT)"
 
 
