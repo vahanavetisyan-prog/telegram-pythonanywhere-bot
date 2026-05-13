@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from bot.clients import bot, BOT_INFO, store
-from bot.config import MODEL, RATE_LIMIT, HF_SPACE_ID, HOSTING_LABEL
+from bot.config import COMMIT_SHA, HF_SPACE_ID, HOSTING_LABEL, MODEL, RATE_LIMIT
 from bot.ai import ask_ai
 from bot.helpers import keep_typing, send_reply, should_respond
 from bot.history import clear_history
@@ -80,10 +80,14 @@ def cmd_about(message):
     else:
         model_line = MODEL
     storage_line = "SQLite" if store is not None else "stateless (no memory)"
-    bot.send_message(
-        message.chat.id,
-        f"Model  : {model_line}\nStorage: {storage_line}\nHosting: {HOSTING_LABEL}",
-    )
+    lines = [
+        f"Model  : {model_line}",
+        f"Storage: {storage_line}",
+        f"Hosting: {HOSTING_LABEL}",
+    ]
+    if COMMIT_SHA:
+        lines.append(f"Version: {COMMIT_SHA}")
+    bot.send_message(message.chat.id, "\n".join(lines))
 
 
 if HF_SPACE_ID:

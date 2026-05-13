@@ -133,6 +133,39 @@ def test_cmd_about_with_sqlite():
         assert "stateless" not in sent
 
 
+def test_cmd_about_includes_commit_sha_when_set():
+    """When COMMIT_SHA is populated (worker booted inside a git repo),
+    /about exposes a Version line so users can validate which commit is
+    live."""
+    with (
+        patch("bot.handlers.bot") as mock_bot,
+        patch("bot.handlers.store", MagicMock()),
+        patch("bot.handlers.HF_SPACE_ID", ""),
+        patch("bot.handlers.COMMIT_SHA", "abc1234"),
+    ):
+        from bot.handlers import cmd_about
+
+        cmd_about(make_message())
+        sent = mock_bot.send_message.call_args[0][1]
+        assert "Version: abc1234" in sent
+
+
+def test_cmd_about_omits_version_line_when_sha_unknown():
+    """If git rev-parse failed at boot, the Version line is dropped
+    entirely rather than showing 'unknown' — clearer for the user."""
+    with (
+        patch("bot.handlers.bot") as mock_bot,
+        patch("bot.handlers.store", MagicMock()),
+        patch("bot.handlers.HF_SPACE_ID", ""),
+        patch("bot.handlers.COMMIT_SHA", ""),
+    ):
+        from bot.handlers import cmd_about
+
+        cmd_about(make_message())
+        sent = mock_bot.send_message.call_args[0][1]
+        assert "Version" not in sent
+
+
 def test_cmd_about_without_store():
     """When no backend is configured, /about must say stateless. Regression
     guard for the NameError that occurred when `store` was missing from

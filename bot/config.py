@@ -1,9 +1,36 @@
 import os
 import secrets as _secrets_mod
+import subprocess as _subprocess
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _WEBHOOK_SECRET_FILE = _PROJECT_ROOT / ".webhook_secret"
+
+
+def _get_commit_sha() -> str:
+    """Return the short SHA of the deployed commit, or an empty string.
+
+    Computed once at module import — so the value reflects the worker's
+    actual code, not whatever `git pull` did since boot. The auto-deploy
+    flow touches the WSGI file on pull, which spawns a fresh worker on
+    the next request with the new SHA. This makes /about a reliable
+    "what version is live right now" probe.
+    """
+    try:
+        result = _subprocess.run(
+            ["git", "-C", str(_PROJECT_ROOT), "rev-parse", "--short=7", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (_subprocess.SubprocessError, OSError):
+        pass
+    return ""
+
+
+COMMIT_SHA = _get_commit_sha()
 
 
 def _bootstrap_webhook_secret(file_path: Path = _WEBHOOK_SECRET_FILE) -> str:
