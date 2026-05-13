@@ -422,22 +422,3 @@ make test
 ```
 
 Tests run offline against mocked Telegram and OpenAI clients — no real API keys or network access required. The same suite runs automatically via GitHub Actions on every push and pull request.
-
----
-
-## Advanced local development
-
-If you want to test the Flask webhook path directly instead of polling (e.g. to exercise `/api/webhook` and `/api/health`), you can run the Flask app locally and expose it via [ngrok](https://ngrok.com):
-
-```bash
-.venv/bin/flask --app api/index run --port 3000
-ngrok http 3000
-```
-
-Then re-register the webhook against your ngrok URL:
-
-```bash
-curl "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook?url=https://<your-ngrok-url>/api/webhook"
-```
-
-This is usually only needed when debugging Flask-level concerns; for day-to-day development, `make run` is simpler.
