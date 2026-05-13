@@ -19,7 +19,43 @@ else:
         "Storage not configured — running in stateless mode (no memory, no rate limit)."
     )
 
-BOT_INFO = bot.get_me()  # cached at startup for group mention detection
+
+class _LazyBotInfo:
+    """Defers `bot.get_me()` until first attribute access; caches the
+    result; retries transient failures.
+
+    Why this exists: PA's outbound HTTPS proxy occasionally returns 503
+    for a few seconds. If `get_me()` ran at module load, a single
+    proxy blip would prevent the WSGI worker from booting at all. With
+    lazy access, the worker comes up regardless and individual requests
+    that need the bot's username retry up to 3 times with backoff.
+    """
+
+    _info = None
+
+    def _load(self) -> None:
+        if self._info is not None:
+            return
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                self._info = bot.get_me()
+                return
+            except Exception as e:
+                last_exc = e
+                print(f"bot.get_me() attempt {attempt + 1}/3 failed: {e}")
+                if attempt < 2:
+                    time.sleep(1)
+        raise RuntimeError(
+            f"Could not fetch bot info from Telegram after 3 attempts: {last_exc}"
+        )
+
+    def __getattr__(self, name):
+        self._load()
+        return getattr(self._info, name)
+
+
+BOT_INFO = _LazyBotInfo()
 
 
 def register_webhook() -> str:
