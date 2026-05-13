@@ -19,15 +19,15 @@ A minimal Python Telegram bot running on Vercel (free tier) with persistent conv
 | [GitHub](https://github.com) | Source code | Everything | Always free |
 | [Upstash](https://upstash.com) | Redis for conversation memory | Deployment *(optional for local)* | 10,000 req/day |
 | [Vercel](https://vercel.com) | Hosting the bot | Deployment | 100GB bandwidth/month |
+| [PythonAnywhere](https://www.pythonanywhere.com) | Hosting the bot *(alternative to Vercel)* | Deployment | 1 web app, 512MB disk, monthly renewal click required |
 | [Tavily](https://tavily.com) | Web search *(optional)* | Extras | 1,000 searches/month |
 | [UptimeRobot](https://uptimerobot.com) | Keep-warm pings *(optional)* | Extras | 50 monitors, 5-min interval |
 
 > **Age requirements (check before signing up).** Each of the services above has a minimum age in its Terms of Service. As a rule of thumb across the default stack:
-> - **Telegram, GitHub, Vercel, Upstash, Hugging Face:** 13+ globally (16+ in the EU/UK for some, due to GDPR).
-> - **Cerebras (AI API):** typically 18+. If you're younger, your parent or guardian usually needs to register the account on your behalf. Read the [Cerebras Terms of Use](https://cloud.cerebras.ai/) before signing up.
-> - **Tavily (optional web search):** typically 18+.
+> - **Telegram, Cerebras, GitHub, Vercel, PythonAnywhere, Upstash, Hugging Face:** 13+ globally (16+ in the EU/UK for some, due to GDPR).
+> - **Tavily (optional web search):** typically 18+ — skip this step if you're under 18, the bot still works fine without web search.
 >
-> If you're under 18, the safest path is to walk through the signup steps with a parent or teacher — they create the accounts that require an adult and share the API keys with you. You can still do all of the coding, testing, and deployment work yourself.
+> If you're under 13, or in a region where the minimum is 16+, the safest path is to walk through the signup steps with a parent or teacher — they create the accounts and share the API keys with you. You can still do all of the coding, testing, and deployment work yourself.
 
 ---
 
