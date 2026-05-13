@@ -59,3 +59,48 @@ def test_register_webhook_does_not_raise_on_failure():
 
         msg = register_webhook()
         assert "fail" in msg.lower()
+
+
+def test_register_webhook_rejects_http_scheme():
+    """Telegram only accepts HTTPS webhooks. A misconfigured http:// URL
+    should fail fast with a clear message, not a confusing Telegram error."""
+    with (
+        patch("bot.config.WEBHOOK_URL", "http://example.com/api/webhook"),
+        patch("bot.config.WEBHOOK_SECRET", ""),
+        patch("bot.clients.bot") as mock_bot,
+    ):
+        from bot.clients import register_webhook
+
+        msg = register_webhook()
+        assert "https" in msg.lower()
+        mock_bot.set_webhook.assert_not_called()
+
+
+def test_register_webhook_rejects_url_with_no_path():
+    """A bare domain isn't a useful webhook — Telegram would still accept
+    it but route to '/', which our Flask app doesn't handle."""
+    with (
+        patch("bot.config.WEBHOOK_URL", "https://example.com"),
+        patch("bot.config.WEBHOOK_SECRET", ""),
+        patch("bot.clients.bot") as mock_bot,
+    ):
+        from bot.clients import register_webhook
+
+        msg = register_webhook()
+        assert "path" in msg.lower()
+        mock_bot.set_webhook.assert_not_called()
+
+
+def test_register_webhook_reports_telegram_false_return():
+    """If Telegram returns False (rare but documented), surface it
+    instead of falsely reporting success."""
+    with (
+        patch("bot.config.WEBHOOK_URL", "https://example.com/api/webhook"),
+        patch("bot.config.WEBHOOK_SECRET", ""),
+        patch("bot.clients.bot") as mock_bot,
+    ):
+        mock_bot.set_webhook.return_value = False
+        from bot.clients import register_webhook
+
+        msg = register_webhook()
+        assert "false" in msg.lower() or "fail" in msg.lower()
