@@ -85,7 +85,7 @@ telegram-vercel-bot/
 | `AI_MODEL` | No | `llama3.1-8b` | Model name for the provider |
 | `HF_SPACE_ID` | No | — | Hugging Face Gradio space ID (e.g. `edisimon/armgpt-demo`) — enables `/model` command when set |
 | `HF_TOKEN` | No | — | HF auth token — only needed if the Gradio space is private or gated |
-| `WEBHOOK_SECRET` | No | — | Random string to verify requests come from Telegram |
+| `WEBHOOK_SECRET` | No | _auto-generated_ | Random string Telegram echoes back in `X-Telegram-Bot-Api-Secret-Token`. Auto-bootstrapped on first run: if the env var is unset, `bot/config.py::_bootstrap_webhook_secret()` generates a 64-hex secret, persists it to `.webhook_secret` (gitignored, mode 0600), and reuses it on subsequent boots. The boot-time `register_webhook()` then ships it to Telegram. Set the env var to override / share across envs |
 | `WEBHOOK_URL` | No | — | When set, the bot auto-registers this URL as the Telegram webhook on every worker boot and after every `/api/deploy`. No manual `setWebhook` step needed. Idempotent. On PA, value is `https://<your-pa-username>.pythonanywhere.com/api/webhook`. Leave unset for local polling |
 | `RATE_LIMIT` | No | `250` | Max messages per user per day |
 | `HOSTING_LABEL` | No | `PythonAnywhere` | Label shown by the `/about` command |
@@ -188,6 +188,8 @@ The deployment target is `https://<your-pa-username>.pythonanywhere.com`. The sa
 **Auto-deploy on push to main.** When `DEPLOY_SECRET` is set in PA's `.env`, the `/api/deploy` endpoint accepts authenticated POSTs that run `git pull --ff-only` in the project dir and `touch` the PA WSGI file. `.github/workflows/deploy.yml` triggers on push to `main` and hits the endpoint using two repo secrets: `DEPLOY_SECRET` (matches PA env var) and `PA_DEPLOY_URL` (the deploy URL). The endpoint fails-closed (403) when `DEPLOY_SECRET` is unset and uses `hmac.compare_digest` for secret comparison. The workflow skips with a warning when its secrets aren't set, so this is fully optional.
 
 **Auto webhook registration.** When `WEBHOOK_URL` is set, `pythonanywhere_wsgi.py` calls `bot.clients.register_webhook()` at worker boot, and `/api/deploy` calls it again after every git pull. Both call `bot.set_webhook(url=WEBHOOK_URL, secret_token=WEBHOOK_SECRET)`. Failures are caught and logged — never crash the worker. This eliminates the manual `curl setWebhook` step from the deploy guide.
+
+**Auto webhook-secret bootstrap.** If `WEBHOOK_SECRET` is unset, `bot/config.py::_bootstrap_webhook_secret()` generates a 64-hex-character random secret and persists it in `.webhook_secret` at the project root (gitignored, chmod 0600). Subsequent boots read it back. The auto-registration above then passes it to Telegram via `secret_token`, so the bot is signed-by-default with zero manual setup. A read-only mount or other FS error falls back to an empty secret (unsigned webhook) rather than crashing the worker. To rotate: delete `.webhook_secret` and reload — boot generates a new one and re-registers. Tests must set `WEBHOOK_SECRET` in env (conftest.py does this) so the bootstrap doesn't litter the working tree.
 
 **Critical PA-specific constraints:**
 - **Free-tier outbound HTTPS whitelist.** `api.telegram.org`, `api.cerebras.ai`, `huggingface.co` are all on it. Most other domains aren't — if you add a feature that calls a new service, check `https://www.pythonanywhere.com/whitelist/` first. To request a new domain be added, post on the PA forums.

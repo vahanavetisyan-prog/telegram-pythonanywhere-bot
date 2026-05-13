@@ -1,10 +1,46 @@
 import os
+import secrets as _secrets_mod
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_WEBHOOK_SECRET_FILE = _PROJECT_ROOT / ".webhook_secret"
+
+
+def _bootstrap_webhook_secret(file_path: Path = _WEBHOOK_SECRET_FILE) -> str:
+    """Return WEBHOOK_SECRET from env if set; otherwise read/generate a
+    persistent random secret in `file_path`.
+
+    This makes the webhook signed-by-default: a fresh PA deploy with no
+    manual `openssl rand` step still rejects forged updates because the
+    bot auto-generates and persists a 64-hex-char secret on first run,
+    then registers it with Telegram via the boot-time `register_webhook()`.
+
+    Precedence: env var > on-disk file > newly generated. Filesystem
+    errors fall back to the empty string so a read-only mount can't
+    crash worker boot — the webhook just stays unsigned in that case.
+    """
+    env_value = os.environ.get("WEBHOOK_SECRET", "").strip()
+    if env_value:
+        return env_value
+    try:
+        if file_path.exists():
+            return file_path.read_text().strip()
+        new_secret = _secrets_mod.token_hex(32)
+        file_path.write_text(new_secret)
+        try:
+            os.chmod(file_path, 0o600)
+        except OSError:
+            pass  # best-effort tightening; Windows / odd mounts can skip
+        print(f"Generated webhook secret at {file_path} (auto-bootstrap)")
+        return new_secret
+    except OSError as e:
+        print(f"Could not persist webhook secret ({e}); webhook will be unsigned")
+        return ""
+
 
 # Telegram
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"].strip()
-WEBHOOK_SECRET = os.environ.get(
-    "WEBHOOK_SECRET", ""
-).strip()  # optional, but recommended
+WEBHOOK_SECRET = _bootstrap_webhook_secret()
 
 # When set, the bot auto-registers this URL as the Telegram webhook on
 # worker boot and after every /api/deploy. Leave unset for local

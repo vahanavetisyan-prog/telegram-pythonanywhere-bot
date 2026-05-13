@@ -10,6 +10,10 @@ from unittest.mock import MagicMock
 # ── Fake environment variables ─────────────────────────────────────────────────
 os.environ["TELEGRAM_BOT_TOKEN"] = "1234567890:fake_token"
 os.environ["AI_API_KEY"] = "fake_api_key"
+# Prevent bot/config.py's webhook-secret bootstrap from creating a
+# .webhook_secret file in the working tree at import time. Tests that
+# need to exercise the bootstrap logic pass `file_path` explicitly.
+os.environ["WEBHOOK_SECRET"] = "fake_webhook_secret_for_tests"
 
 # ── Mock external packages ─────────────────────────────────────────────────────
 mock_bot_instance = MagicMock()

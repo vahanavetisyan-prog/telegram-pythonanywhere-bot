@@ -280,33 +280,22 @@ If the secrets aren't set, the workflow skips with a warning instead of failing 
 
 # Part 3 — Customize it
 
-## Secure the webhook *(recommended)*
+## Secure the webhook
 
-Without a webhook secret, anyone who knows your webhook URL can send fake messages to your bot.
+**Already automated.** On first boot, the bot generates a 64-hex-character random secret, stores it in `.webhook_secret` (gitignored, mode `0600`), and registers it with Telegram via `setWebhook` so every incoming request must present a matching `X-Telegram-Bot-Api-Secret-Token` header. Forged updates are rejected with 403.
 
-1. Generate a random secret:
-
-```bash
-openssl rand -hex 16
-```
-
-2. Add it to your PA `.env`:
+You don't need to do anything for this to work. The first PA worker boot prints:
 
 ```
-WEBHOOK_SECRET=<your secret>
+Generated webhook secret at /home/<your-pa-username>/telegram-vercel-bot/.webhook_secret (auto-bootstrap)
+Webhook registered: https://<your-pa-username>.pythonanywhere.com/api/webhook
 ```
 
-3. Reload the web app from the PA dashboard (Web tab → green **Reload** button). If `WEBHOOK_URL` is set in your `.env`, the bot auto-re-registers the webhook with the new secret on boot — no manual `setWebhook` call needed.
+The secret persists across deploys (file lives on PA's disk, outside the git worktree's tracked files), so the value the bot verifies against stays stable.
 
-   If you skipped `WEBHOOK_URL` and are managing the webhook by hand, re-run setWebhook with the secret:
+**To override (optional):** set `WEBHOOK_SECRET=<your value>` explicitly in `.env`. The env var wins over the auto-bootstrapped file. Useful if you want to share a known secret across environments.
 
-   ```bash
-   curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
-     --data-urlencode "url=https://<your-pa-username>.pythonanywhere.com/api/webhook" \
-     --data-urlencode "secret_token=<your secret>"
-   ```
-
-The bot will now reject any webhook request that doesn't include the correct secret header.
+**To rotate the secret:** in PA's Bash console, `rm ~/telegram-vercel-bot/.webhook_secret` and reload the web app. Boot generates a new one and re-registers with Telegram automatically.
 
 ---
 
