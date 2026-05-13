@@ -1,3 +1,4 @@
+import fcntl
 import hmac
 import os
 import subprocess
@@ -26,6 +27,17 @@ def webhook():
         token = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
         if not hmac.compare_digest(token, WEBHOOK_SECRET):
             return "Forbidden", 403
+    elif not _WARNED_NO_WEBHOOK_SECRET[0]:
+        # First-request warning so operators notice the fail-open path.
+        # WEBHOOK_SECRET stays optional for backwards compat + local
+        # teaching, but anyone running this in production should set it.
+        print(
+            "WARNING: WEBHOOK_SECRET is not set. /api/webhook accepts "
+            "unauthenticated POSTs — anyone who guesses the URL can forge "
+            "Telegram updates. Set WEBHOOK_SECRET and re-register the "
+            "webhook with secret_token=<your_secret>."
+        )
+        _WARNED_NO_WEBHOOK_SECRET[0] = True
 
     # Authenticated — now pull the heavyweight modules.
     import telebot
@@ -41,32 +53,44 @@ def webhook():
     if update is None:
         return "Bad Request", 400
 
-    # Dedupe Telegram retries: when our function times out or crashes,
-    # Telegram resends the same update_id. We mark "done" only AFTER
-    # process_new_updates returns successfully, so a real failure still
-    # lets the retry reach the handler.
     update_id = getattr(update, "update_id", None)
     if update_id is not None:
-        from bot.dedupe import is_processed, mark_processed
+        from bot.dedupe import try_acquire
 
-        if is_processed(update_id):
+        if not try_acquire(update_id):
+            # Already claimed by another delivery or a prior successful run.
             return "OK", 200
-        bot.process_new_updates([update])
-        mark_processed(update_id)
-    else:
-        bot.process_new_updates([update])
+
+    bot.process_new_updates([update])
     return "OK", 200
+
+
+# Module-level flag so the WEBHOOK_SECRET unset warning logs once per
+# worker boot instead of on every request.
+_WARNED_NO_WEBHOOK_SECRET = [False]
 
 
 # Project root — used by /api/deploy to scope `git pull` correctly.
 # api/index.py is at <repo>/api/index.py, so two dirname() calls give us the repo root.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+# Lock file path. fcntl.flock against this file serializes /api/deploy
+# calls so two concurrent GitHub Actions runs can't race `git pull` in
+# the same worktree.
+_DEPLOY_LOCK_PATH = os.path.join(_PROJECT_ROOT, ".deploy.lock")
+
 
 def _pa_wsgi_path() -> str:
     """Return the PythonAnywhere WSGI file path for the current user, or
     empty string if not running on PA. Touching this file triggers a
-    graceful worker reload on the next request."""
+    graceful worker reload on the next request.
+
+    Honors PA_WSGI_PATH as an explicit override for non-default PA
+    layouts; otherwise derives from $USER.
+    """
+    override = os.environ.get("PA_WSGI_PATH", "").strip()
+    if override:
+        return override if os.path.exists(override) else ""
     user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
     if not user:
         return ""
@@ -81,6 +105,9 @@ def deploy():
     Verifies an X-Deploy-Secret header against DEPLOY_SECRET. Fail-closed:
     returns 403 if the env var is unset, so a misconfigured deploy can't
     accidentally allow arbitrary callers to trigger code execution.
+
+    Serialized via fcntl.flock so overlapping GitHub Actions runs or
+    replayed valid requests can't race `git pull` in the same worktree.
     """
     from bot.config import DEPLOY_SECRET
 
@@ -91,34 +118,64 @@ def deploy():
     if not hmac.compare_digest(provided, DEPLOY_SECRET):
         return "Forbidden", 403
 
+    # Acquire exclusive lock. Non-blocking — if another deploy is
+    # in-flight we return 409 immediately rather than queueing up.
+    lock_fd = os.open(_DEPLOY_LOCK_PATH, os.O_CREAT | os.O_RDWR, 0o644)
+    locked = False
     try:
-        result = subprocess.run(
-            ["git", "-C", _PROJECT_ROOT, "pull", "--ff-only"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except subprocess.TimeoutExpired:
-        return "git pull timed out", 504
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            locked = True
+        except BlockingIOError:
+            return "Another deploy is in progress, try again shortly", 409
 
-    if result.returncode != 0:
-        return f"git pull failed:\n{result.stderr}", 500
+        try:
+            result = subprocess.run(
+                ["git", "-C", _PROJECT_ROOT, "pull", "--ff-only"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return "git pull timed out", 504
 
-    # Re-register the webhook in case WEBHOOK_URL changed, the secret
-    # rotated, or the previous registration was cleared (e.g. by a local
-    # polling session). Idempotent and best-effort.
-    webhook_status = ""
-    try:
-        from bot.clients import register_webhook
+        if result.returncode != 0:
+            # Don't echo raw stderr to the caller — it can leak local
+            # paths or remote details. Log server-side, return generic.
+            print(f"git pull failed (rc={result.returncode}):\n{result.stderr}")
+            return "git pull failed (see server log for details)", 500
 
-        webhook_status = "\n" + register_webhook()
-    except Exception as e:
-        webhook_status = f"\nWebhook registration failed: {e}"
+        # Re-register webhook in case WEBHOOK_URL or WEBHOOK_SECRET
+        # changed, or a local polling session cleared the registration.
+        # Best-effort: never fail the deploy on a webhook registration
+        # error since the worker reload below will retry it.
+        webhook_status = ""
+        try:
+            from bot.clients import register_webhook
 
-    # Touch the PA WSGI file so the next request boots a fresh worker
-    # with the new code. No-op when not running on PA.
-    wsgi_path = _pa_wsgi_path()
-    if wsgi_path:
-        os.utime(wsgi_path, None)
+            webhook_status = "\n" + register_webhook()
+        except Exception as e:
+            webhook_status = f"\nWebhook registration failed: {e}"
 
-    return f"OK\n{result.stdout}{webhook_status}", 200
+        # Touch the PA WSGI file so the next request boots a fresh
+        # worker with the new code. No-op when not running on PA;
+        # don't fail the deploy if the touch itself errors (the pull
+        # already succeeded).
+        wsgi_path = _pa_wsgi_path()
+        if wsgi_path:
+            try:
+                os.utime(wsgi_path, None)
+            except OSError as e:
+                webhook_status += f"\nWSGI reload (os.utime) failed: {e}"
+
+        return f"OK\n{result.stdout}{webhook_status}", 200
+    finally:
+        # Release lock (if we acquired it) + close fd. Don't unlink the
+        # lockfile — leave it for next deploy. Swallow errors from
+        # LOCK_UN so they can't mask the response from the try-block.
+        if locked:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            except Exception:
+                pass
+        os.close(lock_fd)

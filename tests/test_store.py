@@ -114,6 +114,85 @@ def test_expire_sets_ttl_on_existing_key(monkeypatch):
     assert s.get("k") is None
 
 
+def test_incr_is_atomic_under_concurrent_calls(tmp_path):
+    """Codex review found that the pre-fix incr() was a non-atomic
+    read-modify-write that lost ~50% of increments under contention
+    (expected 200, got 93 with 20 errors). This test reproduces that
+    workload and asserts the post-fix SqliteStore.incr() returns the
+    exact expected count."""
+    import threading
+
+    db_path = tmp_path / "concurrent.db"
+    s = SqliteStore(str(db_path))
+    THREADS = 10
+    PER_THREAD = 50
+    EXPECTED = THREADS * PER_THREAD
+    errors = []
+
+    def worker():
+        for _ in range(PER_THREAD):
+            try:
+                s.incr("counter")
+            except Exception as e:
+                errors.append(e)
+
+    threads = [threading.Thread(target=worker) for _ in range(THREADS)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert errors == [], f"unexpected errors: {errors[:5]}"
+    assert s.get("counter") == str(EXPECTED), (
+        f"expected {EXPECTED}, got {s.get('counter')} — lost increments"
+    )
+
+
+def test_set_nx_returns_true_when_absent(tmp_path):
+    s = SqliteStore(str(tmp_path / "nx.db"))
+    assert s.set_nx("k", "v") is True
+    assert s.get("k") == "v"
+
+
+def test_set_nx_returns_false_when_present(tmp_path):
+    s = SqliteStore(str(tmp_path / "nx.db"))
+    s.set("k", "first")
+    assert s.set_nx("k", "second") is False
+    assert s.get("k") == "first"  # not overwritten
+
+
+def test_set_nx_overwrites_expired_entry(tmp_path, monkeypatch):
+    s = SqliteStore(str(tmp_path / "nx.db"))
+    s.set("k", "stale", ex=10)
+    monkeypatch.setattr(
+        SqliteStore, "_now", staticmethod(lambda: int(time.time()) + 100)
+    )
+    assert s.set_nx("k", "fresh") is True
+    assert s.get("k") == "fresh"
+
+
+def test_set_nx_is_atomic_under_contention(tmp_path):
+    """Only one of N concurrent set_nx callers should win — the rest
+    must see False. Mirrors the dedupe.try_acquire workload."""
+    import threading
+
+    s = SqliteStore(str(tmp_path / "race.db"))
+    THREADS = 32
+    won = []
+
+    def worker():
+        if s.set_nx("update:42", "1", ex=600):
+            won.append(1)
+
+    threads = [threading.Thread(target=worker) for _ in range(THREADS)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert sum(won) == 1, f"expected exactly one winner, got {sum(won)}"
+
+
 def test_rate_limit_pattern_end_to_end(monkeypatch):
     """Mirror the exact incr+expire+gt-check pattern used in bot/rate_limit.py
     to catch regressions across the abstraction boundary."""

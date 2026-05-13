@@ -14,17 +14,30 @@ on:
     branches: [main]
   workflow_dispatch:  # also allow manual triggers from the Actions tab
 
+# Serialize deploys so a rapid sequence of pushes can't race git pull
+# on PA. New runs cancel any in-flight run; the last commit wins.
+concurrency:
+  group: pa-deploy
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger PA deploy
+        # Pass secrets through env: instead of inline ${{ }} so a
+        # secret value containing shell metacharacters (quotes,
+        # backticks, $()...) can't alter the script. Inside the run
+        # block we read them as shell variables and quote properly.
+        env:
+          PA_DEPLOY_URL: ${{ secrets.PA_DEPLOY_URL }}
+          DEPLOY_SECRET: ${{ secrets.DEPLOY_SECRET }}
         run: |
-          if [ -z "${{ secrets.PA_DEPLOY_URL }}" ] || [ -z "${{ secrets.DEPLOY_SECRET }}" ]; then
+          if [ -z "$PA_DEPLOY_URL" ] || [ -z "$DEPLOY_SECRET" ]; then
             echo "::warning::PA_DEPLOY_URL or DEPLOY_SECRET not set in repo secrets; skipping deploy."
             exit 0
           fi
           curl -fsS -X POST \
-            -H "X-Deploy-Secret: ${{ secrets.DEPLOY_SECRET }}" \
+            -H "X-Deploy-Secret: $DEPLOY_SECRET" \
             --max-time 60 \
-            "${{ secrets.PA_DEPLOY_URL }}"
+            "$PA_DEPLOY_URL"

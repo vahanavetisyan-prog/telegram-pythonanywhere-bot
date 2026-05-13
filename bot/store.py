@@ -1,9 +1,9 @@
 """KV store backed by SQLite, with lazy TTL expiry.
 
-Every storage call in the bot reduces to five operations against a
-keyed value: get / set / delete / incr / expire — all TTL-aware.
-SqliteStore implements them against a local SQLite file, which is
-the right fit for hosts with persistent disk (PythonAnywhere).
+Every storage call in the bot reduces to six operations against a keyed
+value: get / set / set_nx / delete / incr / expire — all TTL-aware.
+SqliteStore implements them against a local SQLite file, which is the
+right fit for hosts with persistent disk (PythonAnywhere).
 
 Lazy expiry: expired rows are filtered on read and overwritten on
 write. There is no background sweeper — stale rows accumulate slowly
@@ -12,11 +12,19 @@ entire state stays well under 10MB even with hundreds of users.
 
 WAL mode is enabled so the (currently unused) future case of
 multiple workers won't have readers blocking writers.
+
+Concurrency: the sqlite3 connection is opened with `check_same_thread=False`
+because keep_typing()'s daemon thread shares the worker. A `threading.Lock`
+serializes Python-level access so the (not thread-safe) Connection object
+isn't used concurrently. Multi-statement operations (incr, set_nx) use
+`BEGIN IMMEDIATE` so they're also atomic across processes if PA ever
+gives us multiple workers.
 """
 
 from __future__ import annotations
 
 import sqlite3
+import threading
 import time
 from typing import Optional
 
@@ -31,24 +39,23 @@ class SqliteStore:
     """
 
     def __init__(self, path: str) -> None:
-        # check_same_thread=False lets keep_typing()'s daemon thread
-        # share the connection if it ever needs to. isolation_level=None
-        # enables autocommit so simple ops don't need explicit BEGIN/COMMIT.
         self._conn = sqlite3.connect(
             path, check_same_thread=False, isolation_level=None
         )
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._conn.execute(self._SCHEMA)
+        self._lock = threading.Lock()
 
     @staticmethod
     def _now() -> int:
         return int(time.time())
 
     def get(self, key: str) -> Optional[str]:
-        row = self._conn.execute(
-            "SELECT value, expires_at FROM kv WHERE key = ?", (key,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT value, expires_at FROM kv WHERE key = ?", (key,)
+            ).fetchone()
         if row is None:
             return None
         value, expires_at = row
@@ -58,38 +65,83 @@ class SqliteStore:
 
     def set(self, key: str, value: str, ex: Optional[int] = None) -> None:
         expires_at = self._now() + ex if ex else None
-        self._conn.execute(
-            "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
-            (key, value, expires_at),
-        )
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO kv (key, value, expires_at) VALUES (?, ?, ?)",
+                (key, value, expires_at),
+            )
+
+    def set_nx(self, key: str, value: str, ex: Optional[int] = None) -> bool:
+        """Set key=value only if the key is absent or expired.
+
+        Returns True if we set the value (i.e. caller "won" the claim),
+        False if a non-expired entry already exists. Atomic — used by
+        dedupe to prevent two concurrent webhook requests from both
+        processing the same update_id.
+        """
+        expires_at = self._now() + ex if ex else None
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT expires_at FROM kv WHERE key = ?", (key,)
+                ).fetchone()
+                now = self._now()
+                if row is not None and (row[0] is None or row[0] > now):
+                    self._conn.execute("COMMIT")
+                    return False
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO kv (key, value, expires_at) "
+                    "VALUES (?, ?, ?)",
+                    (key, value, expires_at),
+                )
+                self._conn.execute("COMMIT")
+                return True
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
 
     def delete(self, key: str) -> None:
-        self._conn.execute("DELETE FROM kv WHERE key = ?", (key,))
+        with self._lock:
+            self._conn.execute("DELETE FROM kv WHERE key = ?", (key,))
 
     def incr(self, key: str) -> int:
-        # Missing or expired keys are (re)created at 1 with no TTL.
-        # Existing keys keep their TTL untouched. Callers that need a
-        # TTL on the first increment must call expire() separately
-        # when the returned value is 1 (see bot/rate_limit.py).
-        row = self._conn.execute(
-            "SELECT value, expires_at FROM kv WHERE key = ?", (key,)
-        ).fetchone()
-        now = self._now()
-        if row is None or (row[1] is not None and row[1] <= now):
-            self._conn.execute(
-                "INSERT OR REPLACE INTO kv (key, value, expires_at) "
-                "VALUES (?, '1', NULL)",
-                (key,),
-            )
-            return 1
-        new_value = int(row[0]) + 1
-        self._conn.execute(
-            "UPDATE kv SET value = ? WHERE key = ?", (str(new_value), key)
-        )
-        return new_value
+        """Atomic increment with Redis INCR semantics.
+
+        Missing or expired keys are (re)created at 1 with no TTL.
+        Existing keys keep their TTL untouched. Wrapped in BEGIN
+        IMMEDIATE so concurrent callers don't lose updates — codex
+        review caught the previous read-then-write race.
+        """
+        with self._lock:
+            self._conn.execute("BEGIN IMMEDIATE")
+            try:
+                row = self._conn.execute(
+                    "SELECT value, expires_at FROM kv WHERE key = ?", (key,)
+                ).fetchone()
+                now = self._now()
+                if row is None or (row[1] is not None and row[1] <= now):
+                    self._conn.execute(
+                        "INSERT OR REPLACE INTO kv (key, value, expires_at) "
+                        "VALUES (?, '1', NULL)",
+                        (key,),
+                    )
+                    new_value = 1
+                else:
+                    new_value = int(row[0]) + 1
+                    self._conn.execute(
+                        "UPDATE kv SET value = ? WHERE key = ?",
+                        (str(new_value), key),
+                    )
+                self._conn.execute("COMMIT")
+                return new_value
+            except Exception:
+                self._conn.execute("ROLLBACK")
+                raise
 
     def expire(self, key: str, ex: int) -> None:
-        self._conn.execute(
-            "UPDATE kv SET expires_at = ? WHERE key = ?",
-            (self._now() + ex, key),
-        )
+        with self._lock:
+            self._conn.execute(
+                "UPDATE kv SET expires_at = ? WHERE key = ?",
+                (self._now() + ex, key),
+            )

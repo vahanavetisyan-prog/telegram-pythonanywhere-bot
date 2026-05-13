@@ -1,4 +1,4 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 
 def test_webhook_rejects_bad_secret():
@@ -24,8 +24,7 @@ def test_webhook_accepts_correct_secret():
         patch("bot.config.WEBHOOK_SECRET", "correct_secret"),
         patch("api.index.request", mock_request),
         patch("bot.clients.bot"),
-        patch("bot.dedupe.is_processed", return_value=False),
-        patch("bot.dedupe.mark_processed"),
+        patch("bot.dedupe.try_acquire", return_value=True),
         patch("telebot.types.Update.de_json", return_value=fake_update),
     ):
         from api.index import webhook
@@ -42,8 +41,7 @@ def test_webhook_skips_validation_when_no_secret():
         patch("bot.config.WEBHOOK_SECRET", ""),
         patch("api.index.request", mock_request),
         patch("bot.clients.bot"),
-        patch("bot.dedupe.is_processed", return_value=False),
-        patch("bot.dedupe.mark_processed"),
+        patch("bot.dedupe.try_acquire", return_value=True),
         patch("telebot.types.Update.de_json", return_value=fake_update),
     ):
         from api.index import webhook
@@ -52,8 +50,10 @@ def test_webhook_skips_validation_when_no_secret():
         assert result == ("OK", 200)
 
 
-def test_webhook_dedupes_already_processed_update():
-    """A retried update_id whose previous run finished must not be reprocessed."""
+def test_webhook_dedupes_concurrently_claimed_update():
+    """If another delivery already claimed this update_id (atomic set_nx),
+    the webhook must not double-process. Codex review caught the TOCTOU
+    race in the previous check-then-mark pattern."""
     mock_request = MagicMock()
     mock_request.headers.get.return_value = ""
     mock_request.get_data.return_value = "{}"
@@ -63,8 +63,7 @@ def test_webhook_dedupes_already_processed_update():
         patch("bot.config.WEBHOOK_SECRET", ""),
         patch("api.index.request", mock_request),
         patch("bot.clients.bot", mock_bot),
-        patch("bot.dedupe.is_processed", return_value=True),
-        patch("bot.dedupe.mark_processed") as mock_mark,
+        patch("bot.dedupe.try_acquire", return_value=False),
         patch("telebot.types.Update.de_json", return_value=fake_update),
     ):
         from api.index import webhook
@@ -72,33 +71,6 @@ def test_webhook_dedupes_already_processed_update():
         result = webhook()
         assert result == ("OK", 200)
         mock_bot.process_new_updates.assert_not_called()
-        mock_mark.assert_not_called()
-
-
-def test_webhook_marks_processed_only_after_success():
-    """mark_processed must run only once process_new_updates returns
-    successfully — a crash mid-flight must allow Telegram to retry."""
-    mock_request = MagicMock()
-    mock_request.headers.get.return_value = ""
-    mock_request.get_data.return_value = "{}"
-    fake_update = MagicMock(update_id=77)
-    mock_bot = MagicMock()
-    mock_bot.process_new_updates.side_effect = RuntimeError("AI exploded")
-    with (
-        patch("bot.config.WEBHOOK_SECRET", ""),
-        patch("api.index.request", mock_request),
-        patch("bot.clients.bot", mock_bot),
-        patch("bot.dedupe.is_processed", return_value=False),
-        patch("bot.dedupe.mark_processed") as mock_mark,
-        patch("telebot.types.Update.de_json", return_value=fake_update),
-    ):
-        from api.index import webhook
-
-        try:
-            webhook()
-        except RuntimeError:
-            pass  # propagating to Vercel is the desired path
-        mock_mark.assert_not_called()
 
 
 def test_webhook_handles_malformed_json():
@@ -107,8 +79,6 @@ def test_webhook_handles_malformed_json():
     mock_request = MagicMock()
     mock_request.headers.get.return_value = ""
     mock_request.get_data.return_value = "not json"
-    # The conftest replaces telebot wholesale with a MagicMock, so patch
-    # the de_json attribute directly on the mock chain webhook actually uses.
     with (
         patch.object(
             sys.modules["telebot"].types.Update,
