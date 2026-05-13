@@ -54,3 +54,12 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from api.index import app as application  # noqa: E402, F401
+
+# Auto-register the Telegram webhook on every worker boot. Idempotent
+# when WEBHOOK_URL is already current; a no-op when WEBHOOK_URL is
+# unset (e.g. local dev). Logged so the result shows up in PA's
+# server.log. Imported here (not at module top) so api/index.py's
+# Flask app finishes setup first.
+from bot.clients import register_webhook  # noqa: E402
+
+print(register_webhook())

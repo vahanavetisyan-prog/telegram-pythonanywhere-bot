@@ -104,10 +104,21 @@ def deploy():
     if result.returncode != 0:
         return f"git pull failed:\n{result.stderr}", 500
 
+    # Re-register the webhook in case WEBHOOK_URL changed, the secret
+    # rotated, or the previous registration was cleared (e.g. by a local
+    # polling session). Idempotent and best-effort.
+    webhook_status = ""
+    try:
+        from bot.clients import register_webhook
+
+        webhook_status = "\n" + register_webhook()
+    except Exception as e:
+        webhook_status = f"\nWebhook registration failed: {e}"
+
     # Touch the PA WSGI file so the next request boots a fresh worker
     # with the new code. No-op when not running on PA.
     wsgi_path = _pa_wsgi_path()
     if wsgi_path:
         os.utime(wsgi_path, None)
 
-    return f"OK\n{result.stdout}", 200
+    return f"OK\n{result.stdout}{webhook_status}", 200

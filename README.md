@@ -168,9 +168,12 @@ AI_API_KEY=<your Cerebras API key>
 AI_BASE_URL=https://api.cerebras.ai/v1
 AI_MODEL=llama3.1-8b
 SQLITE_PATH=/home/<your-pa-username>/bot.db
+WEBHOOK_URL=https://<your-pa-username>.pythonanywhere.com/api/webhook
 ```
 
 `SQLITE_PATH` enables persistent memory + rate limit + dedupe. The file is created on first use; nothing to set up. If you skip it, the bot runs in stateless mode (no memory between messages).
+
+`WEBHOOK_URL` enables auto-registration: every time the PA worker boots, the bot calls Telegram's `setWebhook` against this URL. No manual `curl setWebhook` needed in production (Step 12 below becomes optional).
 
 Save with `Ctrl+O`, `Enter`, then exit with `Ctrl+X`. `.env` is in `.gitignore`, so it never gets committed even though you edited it inside a checked-out repo.
 
@@ -209,16 +212,18 @@ Test that the worker booted by visiting `https://<your-pa-username>.pythonanywhe
 
 ---
 
-## Step 12 — Register the Telegram webhook against PA
+## Step 12 — Send your bot its first message
 
-Run this from your laptop (or PA's Bash console — either works). Substitute the token and URL:
+If you set `WEBHOOK_URL` in Step 9, the bot auto-registers the webhook the first time the PA worker boots. Visit `https://<your-pa-username>.pythonanywhere.com/api/health` in a browser to force the worker to start, then open Telegram, find your bot, and send a message. Replies will come from PythonAnywhere.
+
+If you'd prefer to register the webhook manually (or skipped `WEBHOOK_URL`), run this from your laptop or PA's Bash console:
 
 ```bash
 curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
   --data-urlencode "url=https://<your-pa-username>.pythonanywhere.com/api/webhook"
 ```
 
-You should see `{"ok":true,...}` in the response. Send your bot a message on Telegram — replies now come from PythonAnywhere.
+You should see `{"ok":true,...}` in the response.
 
 ---
 
@@ -291,15 +296,15 @@ openssl rand -hex 16
 WEBHOOK_SECRET=<your secret>
 ```
 
-3. Re-register the webhook with the same secret:
+3. Reload the web app from the PA dashboard (Web tab → green **Reload** button). If `WEBHOOK_URL` is set in your `.env`, the bot auto-re-registers the webhook with the new secret on boot — no manual `setWebhook` call needed.
 
-```bash
-curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
-  --data-urlencode "url=https://<your-pa-username>.pythonanywhere.com/api/webhook" \
-  --data-urlencode "secret_token=<your secret>"
-```
+   If you skipped `WEBHOOK_URL` and are managing the webhook by hand, re-run setWebhook with the secret:
 
-4. Reload the web app from the PA dashboard.
+   ```bash
+   curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+     --data-urlencode "url=https://<your-pa-username>.pythonanywhere.com/api/webhook" \
+     --data-urlencode "secret_token=<your secret>"
+   ```
 
 The bot will now reject any webhook request that doesn't include the correct secret header.
 

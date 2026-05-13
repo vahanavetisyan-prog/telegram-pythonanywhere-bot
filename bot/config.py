@@ -6,6 +6,12 @@ WEBHOOK_SECRET = os.environ.get(
     "WEBHOOK_SECRET", ""
 ).strip()  # optional, but recommended
 
+# When set, the bot auto-registers this URL as the Telegram webhook on
+# worker boot and after every /api/deploy. Leave unset for local
+# polling (run_local.py). Example value on PA:
+#   WEBHOOK_URL=https://<your-pa-username>.pythonanywhere.com/api/webhook
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "").strip()
+
 # AI provider
 AI_API_KEY = os.environ["AI_API_KEY"].strip()
 AI_BASE_URL = os.environ.get("AI_BASE_URL", "https://api.cerebras.ai/v1").strip()
