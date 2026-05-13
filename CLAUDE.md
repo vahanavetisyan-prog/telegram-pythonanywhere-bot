@@ -106,8 +106,8 @@ The bot uses the OpenAI Python SDK pointed at any OpenAI-compatible endpoint. Sw
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai/` | Model: `gemini-2.5-flash` (250 req/day) |
 
 **Cerebras model IDs** (exact strings — wrong format causes 404):
-- `llama3.1-8b` ✓ (note: dot not dash, no space). Fast, small, good default for snappy chat
-- `qwen-3-235b-a22b-instruct-2507` ✓ verified working on free tier. Much stronger reasoning and multilingual than the 8B, but slower per-token. This is the current `.env.example` default — kids notice the quality jump immediately when they switch
+- `llama3.1-8b` ✓ (note: dot not dash, no space). Fast, small. Current `.env.example` default — snappy chat with low latency, well-suited to PA free tier where Cerebras 429s on the bigger models are more common
+- `qwen-3-235b-a22b-instruct-2507` ✓ verified working on free tier. Much stronger reasoning and multilingual than the 8B, but slower per-token and more queue-pressured. Kids notice the quality jump immediately when they swap up from the default
 - `gpt-oss-120b` ✓ (may require special access on new accounts)
 
 ---

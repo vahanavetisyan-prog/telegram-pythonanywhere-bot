@@ -1,6 +1,6 @@
 # Vercel Telegram Bot — Starter Template
 
-A minimal Python Telegram bot running on Vercel (free tier) with persistent conversation memory via Upstash Redis and AI powered by Cerebras (defaults to `qwen-3-235b-a22b-instruct-2507`, with `llama3.1-8b` and other models available on the free tier).
+A minimal Python Telegram bot running on Vercel (free tier) with persistent conversation memory via Upstash Redis and AI powered by Cerebras (defaults to `llama3.1-8b` — fast and snappy for chat; `qwen-3-235b-a22b-instruct-2507` is available for stronger reasoning).
 
 **Stack:** Python · Flask · pyTelegramBotAPI · OpenAI SDK · Upstash Redis · Vercel
 
@@ -15,12 +15,19 @@ A minimal Python Telegram bot running on Vercel (free tier) with persistent conv
 | Service | Purpose | Needed for | Free tier |
 |---|---|---|---|
 | [Telegram](https://telegram.org) | The bot platform | Everything | Always free |
-| [Cerebras](https://cloud.cerebras.ai) | AI API — `qwen-3-235b-a22b-instruct-2507` (default), `llama3.1-8b`, and more | Everything | 1M tokens/day, 30 req/min |
+| [Cerebras](https://cloud.cerebras.ai) | AI API — `llama3.1-8b` (default), `qwen-3-235b-a22b-instruct-2507`, and more | Everything | 1M tokens/day, 30 req/min |
 | [GitHub](https://github.com) | Source code | Everything | Always free |
 | [Upstash](https://upstash.com) | Redis for conversation memory | Deployment *(optional for local)* | 10,000 req/day |
 | [Vercel](https://vercel.com) | Hosting the bot | Deployment | 100GB bandwidth/month |
 | [Tavily](https://tavily.com) | Web search *(optional)* | Extras | 1,000 searches/month |
 | [UptimeRobot](https://uptimerobot.com) | Keep-warm pings *(optional)* | Extras | 50 monitors, 5-min interval |
+
+> **Age requirements (check before signing up).** Each of the services above has a minimum age in its Terms of Service. As a rule of thumb across the default stack:
+> - **Telegram, GitHub, Vercel, Upstash, Hugging Face:** 13+ globally (16+ in the EU/UK for some, due to GDPR).
+> - **Cerebras (AI API):** typically 18+. If you're younger, your parent or guardian usually needs to register the account on your behalf. Read the [Cerebras Terms of Use](https://cloud.cerebras.ai/) before signing up.
+> - **Tavily (optional web search):** typically 18+.
+>
+> If you're under 18, the safest path is to walk through the signup steps with a parent or teacher — they create the accounts that require an adult and share the API keys with you. You can still do all of the coding, testing, and deployment work yourself.
 
 ---
 
@@ -431,7 +438,7 @@ Users can now run `/model main` or `/model hf` to switch per-user.
 | What to change | How |
 |---|---|
 | Bot personality / instructions | Edit `SYSTEM_PROMPT` in `bot/config.py` |
-| AI model | Set `AI_MODEL` env var (free-tier tested: `qwen-3-235b-a22b-instruct-2507`, `llama3.1-8b`, `gpt-oss-120b`) |
+| AI model | Set `AI_MODEL` env var (free-tier tested: `llama3.1-8b` (default), `qwen-3-235b-a22b-instruct-2507`, `gpt-oss-120b`) |
 | AI provider | Set `AI_BASE_URL` env var (any OpenAI-compatible endpoint) |
 | Enable web search | Set `TAVILY_API_KEY` env var (from tavily.com) |
 | Secure the webhook | Set `WEBHOOK_SECRET` env var |
