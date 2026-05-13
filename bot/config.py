@@ -16,11 +16,17 @@ HF_SPACE_ID = os.environ.get("HF_SPACE_ID", "").strip()
 HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()  # optional, for private spaces
 DEFAULT_PROVIDER = "main"
 
-# Redis — optional. When unset, history / rate limiting / preferences /
-# search-cache all degrade gracefully to stateless behavior. Good for
-# teaching and local dev where you don't want to wire up Upstash yet.
+# Storage — optional. When neither Upstash nor SQLite is configured,
+# history / rate limiting / preferences / search-cache / dedupe all
+# degrade gracefully to stateless behavior. Good for teaching and
+# local dev where you don't want to wire up storage yet.
+#
+# If both Upstash and SQLite are configured, Upstash wins. SQLite is
+# intended for hosts with persistent disk (e.g. PythonAnywhere) where
+# Upstash is unreachable or undesirable.
 UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").strip()
 UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "").strip()
+SQLITE_PATH = os.environ.get("SQLITE_PATH", "").strip()
 
 # Search
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()

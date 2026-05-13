@@ -119,10 +119,12 @@ def test_handle_message_mention_only_skipped():
 
 
 def test_cmd_about_with_redis():
-    """When Redis is configured, /about should reference Upstash Redis storage."""
+    """When Upstash is configured, /about should reference Upstash Redis."""
+    from bot.store import RedisStore
+
     with (
         patch("bot.handlers.bot") as mock_bot,
-        patch("bot.handlers.redis", MagicMock()),
+        patch("bot.handlers.store", MagicMock(spec=RedisStore)),
         patch("bot.handlers.HF_SPACE_ID", ""),
     ):
         from bot.handlers import cmd_about
@@ -133,13 +135,30 @@ def test_cmd_about_with_redis():
         assert "stateless" not in sent
 
 
+def test_cmd_about_with_sqlite():
+    """When SQLite is configured, /about should reference SQLite."""
+    from bot.store import SqliteStore
+
+    with (
+        patch("bot.handlers.bot") as mock_bot,
+        patch("bot.handlers.store", MagicMock(spec=SqliteStore)),
+        patch("bot.handlers.HF_SPACE_ID", ""),
+    ):
+        from bot.handlers import cmd_about
+
+        cmd_about(make_message())
+        sent = mock_bot.send_message.call_args[0][1]
+        assert "SQLite" in sent
+        assert "stateless" not in sent
+
+
 def test_cmd_about_without_redis():
-    """When Redis is not configured, /about must say stateless. Regression
-    guard for the NameError that occurred when `redis` was missing from
+    """When no backend is configured, /about must say stateless. Regression
+    guard for the NameError that occurred when `store` was missing from
     bot.handlers' imports."""
     with (
         patch("bot.handlers.bot") as mock_bot,
-        patch("bot.handlers.redis", None),
+        patch("bot.handlers.store", None),
         patch("bot.handlers.HF_SPACE_ID", ""),
     ):
         from bot.handlers import cmd_about

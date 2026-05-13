@@ -22,9 +22,9 @@ def test_web_search_returns_formatted_results():
     ]
     with (
         patch("bot.search.requests.post", return_value=make_tavily_response(results)),
-        patch("bot.search.redis") as mock_redis,
+        patch("bot.search.store") as mock_store,
     ):
-        mock_redis.get.return_value = None
+        mock_store.get.return_value = None
         from bot.search import web_search
 
         text, sources = web_search("python tutorials")
@@ -43,9 +43,9 @@ def test_web_search_returns_sources():
     ]
     with (
         patch("bot.search.requests.post", return_value=make_tavily_response(results)),
-        patch("bot.search.redis") as mock_redis,
+        patch("bot.search.store") as mock_store,
     ):
-        mock_redis.get.return_value = None
+        mock_store.get.return_value = None
         from bot.search import web_search
 
         text, sources = web_search("python tutorials")
@@ -57,9 +57,9 @@ def test_web_search_returns_sources():
 def test_web_search_no_results():
     with (
         patch("bot.search.requests.post", return_value=make_tavily_response([])),
-        patch("bot.search.redis") as mock_redis,
+        patch("bot.search.store") as mock_store,
     ):
-        mock_redis.get.return_value = None
+        mock_store.get.return_value = None
         from bot.search import web_search
 
         text, sources = web_search("xkqzwmf")
@@ -72,9 +72,9 @@ def test_web_search_sends_correct_payload():
         patch(
             "bot.search.requests.post", return_value=make_tavily_response([])
         ) as mock_post,
-        patch("bot.search.redis") as mock_redis,
+        patch("bot.search.store") as mock_store,
     ):
-        mock_redis.get.return_value = None
+        mock_store.get.return_value = None
         from bot.search import web_search
 
         web_search("test query")
@@ -94,9 +94,9 @@ def test_web_search_returns_cached_result():
     )
     with (
         patch("bot.search.requests.post") as mock_post,
-        patch("bot.search.redis") as mock_redis,
+        patch("bot.search.store") as mock_store,
     ):
-        mock_redis.get.return_value = cached
+        mock_store.get.return_value = cached
         from bot.search import web_search
 
         text, sources = web_search("cached query")
@@ -111,10 +111,10 @@ def test_web_search_works_when_redis_cache_fails():
     ]
     with (
         patch("bot.search.requests.post", return_value=make_tavily_response(results)),
-        patch("bot.search.redis") as mock_redis,
+        patch("bot.search.store") as mock_store,
     ):
-        mock_redis.get.side_effect = Exception("connection refused")
-        mock_redis.set.side_effect = Exception("connection refused")
+        mock_store.get.side_effect = Exception("connection refused")
+        mock_store.set.side_effect = Exception("connection refused")
         from bot.search import web_search
 
         text, sources = web_search("test")
@@ -129,7 +129,7 @@ def test_web_search_works_in_stateless_mode():
     ]
     with (
         patch("bot.search.requests.post", return_value=make_tavily_response(results)),
-        patch("bot.search.redis", None),
+        patch("bot.search.store", None),
     ):
         from bot.search import web_search
 
@@ -146,7 +146,7 @@ def test_web_search_payload_has_only_documented_params():
         patch(
             "bot.search.requests.post", return_value=make_tavily_response([])
         ) as mock_post,
-        patch("bot.search.redis", None),
+        patch("bot.search.store", None),
     ):
         from bot.search import web_search
 

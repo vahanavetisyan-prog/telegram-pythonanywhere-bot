@@ -24,10 +24,11 @@ telegram-vercel-bot/
 │   ├── clients.py        # Instantiates bot, ai, redis clients (do not edit unless adding a client)
 │   ├── ai.py             # ask_ai() orchestration — history, search injection, source citations
 │   ├── providers.py      # Provider dispatch: OpenAI-compatible (with retry) or HF Gradio space
-│   ├── preferences.py    # Per-user provider preference stored in Redis
-│   ├── search.py         # Tavily web search with Redis result caching
-│   ├── history.py        # get/save/clear conversation history in Redis (graceful degradation)
-│   ├── rate_limit.py     # Per-user daily message rate limiting via Redis (graceful degradation)
+│   ├── preferences.py    # Per-user provider preference (via store)
+│   ├── search.py         # Tavily web search with result caching (via store)
+│   ├── history.py        # get/save/clear conversation history (via store, graceful degradation)
+│   ├── rate_limit.py     # Per-user daily message rate limiting (via store, graceful degradation)
+│   ├── store.py          # KVStore abstraction with RedisStore + SqliteStore backends
 │   ├── helpers.py        # send_reply(), keep_typing() context manager, should_respond() utilities
 │   └── handlers.py       # All Telegram command and message handlers — add new commands here
 ├── tests/
@@ -77,8 +78,9 @@ telegram-vercel-bot/
 |---|---|---|---|
 | `TELEGRAM_BOT_TOKEN` | Yes | — | From @BotFather on Telegram |
 | `AI_API_KEY` | Yes | — | API key for the AI provider |
-| `UPSTASH_REDIS_REST_URL` | No | — | From Upstash console. When unset, bot runs in **stateless mode** (no memory, no rate limit, no provider preferences, no search cache) |
-| `UPSTASH_REDIS_REST_TOKEN` | No | — | From Upstash console |
+| `UPSTASH_REDIS_REST_URL` | No | — | Upstash Redis REST URL. Works on any host with unrestricted egress (Vercel). If unset, see `SQLITE_PATH` |
+| `UPSTASH_REDIS_REST_TOKEN` | No | — | Upstash REST token (required if `UPSTASH_REDIS_REST_URL` is set) |
+| `SQLITE_PATH` | No | — | Absolute path to a SQLite DB file. Fallback storage backend when Upstash isn't set. ~100x faster per op than Upstash REST (in-process, no network), but only works on hosts with persistent disk (PA yes, Vercel no). If both Upstash and `SQLITE_PATH` are set, Upstash wins. When neither is set, bot runs in **stateless mode** (no memory, no rate limit, no provider preferences, no search cache, no dedupe) |
 | `AI_BASE_URL` | No | `https://api.cerebras.ai/v1` | Any OpenAI-compatible base URL |
 | `AI_MODEL` | No | `llama3.1-8b` | Model name for the provider |
 | `TAVILY_API_KEY` | No | — | From tavily.com — enables web search when set |
@@ -175,8 +177,9 @@ When `WEBHOOK_SECRET` is set, `api/index.py` checks the `X-Telegram-Bot-Api-Secr
 ## Reliability
 
 - **AI retry logic:** `_call_main()` in `bot/providers.py` retries up to 3 times with exponential backoff (1s, 2s) before raising. Handles transient network errors and rate limit spikes. HF is not retried (it's too slow — a retry would blow the 60s function cap)
-- **Redis is fully optional (stateless mode):** `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` are not required. When either is missing, `bot/clients.py` sets `redis = None` and prints a one-line startup notice. Each consumer (`history`, `rate_limit`, `preferences`, `search`) checks for `None` at the top of every function and returns safe defaults: history is empty, rate limiting is skipped, `get_provider` returns `DEFAULT_PROVIDER`, `set_provider` returns `False`, search-cache reads/writes are no-ops. This is the intended Day-1 teaching mode — kids can run the bot locally with only a Telegram token and an AI API key.
-- **Redis graceful degradation when Redis is configured but down:** all Redis calls in `bot/history.py`, `bot/rate_limit.py`, `bot/preferences.py`, and `bot/search.py` are wrapped in try-except. If Redis is configured but unreachable at runtime: same fallbacks as stateless mode, plus an error log line per failure.
+- **Storage is fully optional (stateless mode):** the storage backend is selected by `bot/clients.py` in this order: Upstash (if `UPSTASH_REDIS_REST_URL` + `_TOKEN` set) → SQLite (if `SQLITE_PATH` set) → `store = None` (stateless). Each consumer (`history`, `rate_limit`, `preferences`, `search`, `dedupe`) checks for `store is None` at the top of every function and returns safe defaults: history is empty, rate limiting is skipped, `get_provider` returns `DEFAULT_PROVIDER`, `set_provider` returns `False`, search-cache and dedupe reads/writes are no-ops. This is the intended Day-1 teaching mode — kids can run the bot locally with only a Telegram token and an AI API key.
+- **Storage graceful degradation when configured but failing:** all storage calls in the consumer modules are wrapped in try-except. If a backend is configured but raises at runtime: same fallbacks as stateless mode, plus an error log line per failure.
+- **`bot/store.py` is the abstraction.** It defines `RedisStore` (thin wrapper over `upstash_redis.Redis`) and `SqliteStore` (file-backed sqlite3 with lazy TTL expiry). Both expose the same five-method interface: `get / set / delete / incr / expire`. The bot only ever needs KV-with-TTL; no Redis-specific structures are used, which is what makes the SQLite swap straightforward. SqliteStore uses WAL mode and lazy expiry (expired rows are filtered on read, overwritten on write — no background sweeper).
 - **Typing indicator during slow calls:** `keep_typing()` in `bot/helpers.py` spawns a daemon thread that re-sends `send_chat_action(chat_id, "typing")` every 4 seconds (Telegram's typing action expires after ~5s). On context exit the thread is signalled and joined with a 2s timeout so the serverless function shuts down cleanly
 
 ---
@@ -271,7 +274,7 @@ The same Flask app at `api/index.py` also runs on PythonAnywhere (PA) free tier 
 - Webhook registration is a one-off `curl setWebhook` against `https://<username>.pythonanywhere.com/api/webhook`
 
 **Critical PA-specific constraints:**
-- **Free-tier outbound HTTPS whitelist.** `api.telegram.org`, `api.cerebras.ai`, `api.tavily.com`, and `huggingface.co` are all on it. **`upstash.io` is NOT** — PA free deployments run in stateless mode unless the user posts a whitelist request at pythonanywhere.com/forums for `upstash.io`. Don't suggest swapping to Turso/Supabase preemptively; the existing stateless-mode fallback already covers this cleanly.
+- **Free-tier outbound HTTPS whitelist.** `api.telegram.org`, `api.cerebras.ai`, `api.tavily.com`, and `huggingface.co` are all on it. **`upstash.io` is NOT.** Two ways to get state on PA: (a) set `SQLITE_PATH=/home/<username>/bot.db` to use the local SQLite backend — fast (~100x faster than Upstash REST), free disk is 512MB, the bot's state stays under 10MB easily. (b) Post a whitelist request at pythonanywhere.com/forums for `upstash.io` to use the same Upstash setup as Vercel. SQLite is the simpler default for PA — no external dependency.
 - **One webhook per bot token.** PA and Vercel can't both be live on the same bot — `setWebhook` overwrites. Switching hosts is just rerunning `setWebhook` against the other URL (or `make push` answering `n` to env). This is the intended workflow for using PA as an "alternative" host without abandoning Vercel.
 - **PA worker is long-lived, not serverless.** `BOT_INFO = bot.get_me()` in `bot/clients.py` runs once per worker reload, not per request. Cold-start latency considerations from the Vercel path don't apply.
 

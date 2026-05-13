@@ -1,4 +1,4 @@
-from bot.clients import redis
+from bot.clients import store
 from bot.config import DEFAULT_PROVIDER, HF_SPACE_ID
 
 VALID_PROVIDERS = ("main", "hf")
@@ -7,16 +7,16 @@ VALID_PROVIDERS = ("main", "hf")
 def get_provider(user_id: int) -> str:
     """Return the user's chosen provider, or DEFAULT_PROVIDER.
 
-    Falls back to DEFAULT_PROVIDER if Redis is not configured, Redis is
-    down, the user has no saved preference, or the saved preference is
-    "hf" but HF_SPACE_ID is not configured.
+    Falls back to DEFAULT_PROVIDER if storage is not configured,
+    storage is down, the user has no saved preference, or the saved
+    preference is "hf" but HF_SPACE_ID is not configured.
     """
-    if redis is None:
+    if store is None:
         return DEFAULT_PROVIDER
     try:
-        value = redis.get(f"provider:{user_id}")
+        value = store.get(f"provider:{user_id}")
     except Exception as e:
-        print(f"Redis read error (preferences): {e}")
+        print(f"Store read error (preferences): {e}")
         return DEFAULT_PROVIDER
     if value not in VALID_PROVIDERS:
         return DEFAULT_PROVIDER
@@ -29,11 +29,11 @@ def set_provider(user_id: int, provider: str) -> bool:
     """Save the user's provider choice. Returns True on success."""
     if provider not in VALID_PROVIDERS:
         return False
-    if redis is None:
+    if store is None:
         return False
     try:
-        redis.set(f"provider:{user_id}", provider)
+        store.set(f"provider:{user_id}", provider)
         return True
     except Exception as e:
-        print(f"Redis write error (preferences): {e}")
+        print(f"Store write error (preferences): {e}")
         return False

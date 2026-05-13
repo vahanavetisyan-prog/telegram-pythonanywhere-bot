@@ -1,7 +1,7 @@
 import hashlib
 import json
 import requests
-from bot.clients import redis
+from bot.clients import store
 from bot.config import TAVILY_API_KEY
 
 TAVILY_ENDPOINT = "https://api.tavily.com/search"
@@ -15,14 +15,14 @@ def web_search(query: str, count: int = 5) -> tuple[str, list[dict]]:
     {"title": ..., "url": ...} dicts for citation.
     """
     cache_key = f"search:{hashlib.md5(query.lower().encode()).hexdigest()}"
-    if redis is not None:
+    if store is not None:
         try:
-            cached = redis.get(cache_key)
+            cached = store.get(cache_key)
             if isinstance(cached, str) and cached:
                 data = json.loads(cached)
                 return data["text"], data["sources"]
         except Exception as e:
-            print(f"Redis read error (search cache): {e}")
+            print(f"Store read error (search cache): {e}")
 
     response = requests.post(
         TAVILY_ENDPOINT,
@@ -44,14 +44,14 @@ def web_search(query: str, count: int = 5) -> tuple[str, list[dict]]:
         f"{r['title']}\n{r.get('content', '')}\n{r['url']}" for r in results
     )
 
-    if redis is not None:
+    if store is not None:
         try:
-            redis.set(
+            store.set(
                 cache_key,
                 json.dumps({"text": formatted, "sources": sources}),
                 ex=CACHE_TTL,
             )
         except Exception as e:
-            print(f"Redis write error (search cache): {e}")
+            print(f"Store write error (search cache): {e}")
 
     return formatted, sources

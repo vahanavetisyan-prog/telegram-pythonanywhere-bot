@@ -1,4 +1,4 @@
-from bot.clients import redis
+from bot.clients import store
 
 # Telegram retries the same update_id when a webhook call doesn't return
 # 200 (e.g. our function timed out or Vercel killed it). Without dedupe,
@@ -11,25 +11,25 @@ DEDUPE_TTL = 600  # seconds
 def is_processed(update_id: int) -> bool:
     """Has this update_id already been handled successfully?
 
-    Stateless mode (no Redis) and Redis errors return False — better to
-    risk a double reply than to silently drop a real message.
+    Stateless mode (no store) and storage errors return False — better
+    to risk a double reply than to silently drop a real message.
     """
-    if redis is None:
+    if store is None:
         return False
     try:
-        return redis.get(f"update:{update_id}") is not None
+        return store.get(f"update:{update_id}") is not None
     except Exception as e:
-        print(f"Redis error (dedupe read): {e}")
+        print(f"Store error (dedupe read): {e}")
         return False
 
 
 def mark_processed(update_id: int) -> None:
-    """Mark the update as successfully handled. Retries within DEDUPE_TTL
-    seconds will be dropped.
+    """Mark the update as successfully handled. Retries within
+    DEDUPE_TTL seconds will be dropped.
     """
-    if redis is None:
+    if store is None:
         return
     try:
-        redis.set(f"update:{update_id}", "1", ex=DEDUPE_TTL)
+        store.set(f"update:{update_id}", "1", ex=DEDUPE_TTL)
     except Exception as e:
-        print(f"Redis error (dedupe write): {e}")
+        print(f"Store error (dedupe write): {e}")

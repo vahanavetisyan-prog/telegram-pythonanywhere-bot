@@ -226,7 +226,7 @@ make deploy
 
 Vercel is the default deployment path above. PythonAnywhere (PA) is an equally valid free host — it runs the same Flask app via a long-lived WSGI worker instead of serverless functions. Pick PA if you prefer a more "traditional Linux box" mental model or already have a PA account.
 
-> **Important — PA free-tier whitelist:** PA restricts outbound HTTPS on the free plan to a whitelist of domains. As of this writing the bot's required services — `api.telegram.org`, `api.cerebras.ai`, `api.tavily.com`, `huggingface.co` — are all whitelisted. **`upstash.io` is NOT.** That means the bot will run in **stateless mode** on PA free tier (no conversation memory, no rate limit, no dedupe, no search cache). The bot itself works fine — these are graceful degradations the code already handles. To unlock full feature parity, post a whitelist request at <https://www.pythonanywhere.com/forums/> asking for `upstash.io` to be added; PA staff typically respond within a few days.
+> **Important — PA free-tier whitelist:** PA restricts outbound HTTPS on the free plan to a whitelist of domains. As of this writing the bot's required services — `api.telegram.org`, `api.cerebras.ai`, `api.tavily.com`, `huggingface.co` — are all whitelisted. **`upstash.io` is NOT.** The simplest fix is to use the bot's built-in **SQLite backend** instead of Upstash on PA: set `SQLITE_PATH=/home/<your-pa-username>/bot.db` in your PA `.env` (see Step 4 below). SQLite runs in-process on PA's persistent disk — ~100x faster than Upstash REST and zero external dependencies. Alternatively, post a whitelist request at <https://www.pythonanywhere.com/forums/> asking for `upstash.io` to be added; PA staff typically respond within a few days.
 >
 > **Telegram only allows one webhook per bot token.** If you already registered Vercel's webhook via `make push`, the same bot can't also be live on PA — running the PA `setWebhook` below will overwrite Vercel's registration. Either pick one host at a time, or create a second bot via @BotFather for PA.
 
@@ -263,7 +263,13 @@ The PA WSGI shim (`pythonanywhere_wsgi.py` in this repo) reads `.env` from the p
 nano .env
 ```
 
-Paste in the same values you used locally — at minimum `TELEGRAM_BOT_TOKEN` and `AI_API_KEY`. Leave `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` unset for now (stateless mode). If you set `WEBHOOK_SECRET`, you'll re-use it in Step 7.
+Paste in the same values you used locally — at minimum `TELEGRAM_BOT_TOKEN` and `AI_API_KEY`. Leave `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` unset (Upstash isn't reachable from PA free tier). For persistent memory + rate limit + dedupe, add:
+
+```
+SQLITE_PATH=/home/<your-pa-username>/bot.db
+```
+
+That enables the bot's local SQLite backend — same features as Upstash, but the DB lives on PA's disk (free tier has 512MB, the bot's state stays under 10MB even with hundreds of users). The file is created on first use; nothing to set up. If you skip this line, the bot still runs but in stateless mode (no memory between messages). If you set `WEBHOOK_SECRET`, you'll re-use it in Step 7.
 
 > `.env` is in `.gitignore`, so it never gets committed even though you edited it inside a checked-out repo.
 
@@ -446,13 +452,14 @@ telegram-vercel-bot/
 │   └── index.py          # Entry point — Flask app, webhook route, /api/health, secret verification
 ├── bot/
 │   ├── config.py         # All env vars and constants
-│   ├── clients.py        # bot, ai, redis instances (redis is optional)
+│   ├── clients.py        # bot, ai, store instances (store is optional)
+│   ├── store.py          # KVStore abstraction (RedisStore + SqliteStore backends)
 │   ├── ai.py             # ask_ai orchestration — history, web search injection, source citations
 │   ├── providers.py      # Provider dispatch: OpenAI-compatible (with retry) or HF Gradio space
-│   ├── preferences.py    # Per-user provider preference stored in Redis
-│   ├── search.py         # Tavily web search with Redis result caching
-│   ├── history.py        # Conversation memory (Redis, graceful degradation)
-│   ├── rate_limit.py     # Per-user rate limiting (graceful degradation)
+│   ├── preferences.py    # Per-user provider preference (via store)
+│   ├── search.py         # Tavily web search with result caching (via store)
+│   ├── history.py        # Conversation memory (via store, graceful degradation)
+│   ├── rate_limit.py     # Per-user rate limiting (via store, graceful degradation)
 │   ├── helpers.py        # Utilities (send_reply, keep_typing, should_respond)
 │   └── handlers.py       # Telegram commands — add new commands here
 ├── tests/
