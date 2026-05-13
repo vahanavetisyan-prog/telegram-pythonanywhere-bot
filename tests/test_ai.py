@@ -1,48 +1,4 @@
 from unittest.mock import patch
-from bot.ai import needs_search
-
-
-# ── needs_search ───────────────────────────────────────────────────────────────
-
-
-def test_needs_search_detects_news():
-    assert needs_search("what is the latest news about Iran?") is True
-
-
-def test_needs_search_detects_today():
-    assert needs_search("what happened today?") is True
-
-
-def test_needs_search_detects_current():
-    assert needs_search("who is the current president?") is True
-
-
-def test_needs_search_false_for_general_question():
-    assert needs_search("what is the capital of France?") is False
-
-
-def test_needs_search_false_for_coding_question():
-    assert needs_search("how do I reverse a list in Python?") is False
-
-
-def test_needs_search_case_insensitive():
-    assert needs_search("What is TODAY's weather?") is True
-
-
-def test_needs_search_does_not_trigger_on_substring():
-    """'now' is a trigger but must not match inside 'know', 'snow', 'knowledge'."""
-    assert needs_search("how do I know the answer?") is False
-    assert needs_search("snow is cold") is False
-    assert needs_search("share knowledge with me") is False
-
-
-def test_needs_search_triggers_on_word_boundary():
-    """'now' as a standalone word should still trigger."""
-    assert needs_search("what is happening now?") is True
-    assert needs_search("now what?") is True
-
-
-# ── ask_ai orchestration ──────────────────────────────────────────────────────
 
 
 def test_ask_ai_returns_reply():
@@ -50,7 +6,6 @@ def test_ask_ai_returns_reply():
         patch("bot.ai.generate", return_value="Hello there!"),
         patch("bot.ai.get_history", return_value=[]),
         patch("bot.ai.save_history"),
-        patch("bot.ai.get_provider", return_value="main"),
     ):
         from bot.ai import ask_ai
 
@@ -63,7 +18,6 @@ def test_ask_ai_saves_history():
         patch("bot.ai.generate", return_value="reply"),
         patch("bot.ai.get_history", return_value=[]),
         patch("bot.ai.save_history") as mock_save,
-        patch("bot.ai.get_provider", return_value="main"),
     ):
         from bot.ai import ask_ai
 
@@ -74,64 +28,11 @@ def test_ask_ai_saves_history():
         assert saved_history[1]["role"] == "assistant"
 
 
-def test_ask_ai_appends_sources_when_search_used():
-    sources = [{"title": "BBC", "url": "https://bbc.com"}]
-    with (
-        patch("bot.ai.generate", return_value="Here is the news."),
-        patch("bot.ai.get_history", return_value=[]),
-        patch("bot.ai.save_history"),
-        patch("bot.ai.get_provider", return_value="main"),
-        patch("bot.ai.TAVILY_API_KEY", "fake_key"),
-        patch("bot.ai.needs_search", return_value=True),
-        patch("bot.search.web_search", return_value=("search text", sources)),
-    ):
-        from bot.ai import ask_ai
-
-        reply = ask_ai(123, "latest news")
-        assert "**Sources:**" in reply
-        assert "[BBC](https://bbc.com)" in reply
-
-
-def test_ask_ai_no_sources_for_general_question():
-    with (
-        patch("bot.ai.generate", return_value="Paris."),
-        patch("bot.ai.get_history", return_value=[]),
-        patch("bot.ai.save_history"),
-        patch("bot.ai.get_provider", return_value="main"),
-    ):
-        from bot.ai import ask_ai
-
-        reply = ask_ai(123, "what is the capital of France?")
-        assert "Sources" not in reply
-
-
-def test_ask_ai_skips_search_for_hf_provider():
-    """HF (ArmGPT) is Armenian-only; don't pollute it with English search results."""
-    sources = [{"title": "BBC", "url": "https://bbc.com"}]
-    with (
-        patch("bot.ai.generate", return_value="Հայաստան"),
-        patch("bot.ai.get_history", return_value=[]),
-        patch("bot.ai.save_history"),
-        patch("bot.ai.get_provider", return_value="hf"),
-        patch("bot.ai.TAVILY_API_KEY", "fake_key"),
-        patch("bot.ai.needs_search", return_value=True),
-        patch(
-            "bot.search.web_search", return_value=("search text", sources)
-        ) as mock_search,
-    ):
-        from bot.ai import ask_ai
-
-        reply = ask_ai(123, "latest news")
-        mock_search.assert_not_called()
-        assert "Sources" not in reply
-
-
 def test_ask_ai_passes_user_id_to_generate():
     with (
         patch("bot.ai.generate", return_value="hi") as mock_gen,
         patch("bot.ai.get_history", return_value=[]),
         patch("bot.ai.save_history"),
-        patch("bot.ai.get_provider", return_value="main"),
     ):
         from bot.ai import ask_ai
 

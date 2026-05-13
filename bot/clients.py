@@ -1,32 +1,16 @@
 import telebot
 from openai import OpenAI
-from bot.config import (
-    TELEGRAM_TOKEN,
-    AI_API_KEY,
-    AI_BASE_URL,
-    UPSTASH_URL,
-    UPSTASH_TOKEN,
-    SQLITE_PATH,
-)
-from bot.store import RedisStore, SqliteStore
+from bot.config import TELEGRAM_TOKEN, AI_API_KEY, AI_BASE_URL, SQLITE_PATH
+from bot.store import SqliteStore
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 ai = OpenAI(base_url=AI_BASE_URL, api_key=AI_API_KEY)
 
-# Persistent storage is optional. Pick the first configured backend:
-#   1. Upstash Redis  — UPSTASH_REDIS_REST_URL + _TOKEN set
-#   2. Local SQLite   — SQLITE_PATH set
-#   3. Stateless mode — nothing set; history / rate limit / preferences /
-#                       search cache / dedupe all no-op
-#
-# Each consumer in bot/ checks `store is None` for stateless and wraps
-# every call in try/except so a misbehaving backend never takes the bot
-# down — replies just lose memory until the backend recovers.
-if UPSTASH_URL and UPSTASH_TOKEN:
-    from upstash_redis import Redis
-
-    store = RedisStore(Redis(url=UPSTASH_URL, token=UPSTASH_TOKEN))
-elif SQLITE_PATH:
+# Persistent storage is optional. Set SQLITE_PATH to the absolute path
+# of a SQLite file to enable history / rate limiting / preferences /
+# dedupe. Without it the bot runs in stateless mode — every consumer
+# in bot/ checks `store is None` and falls back to safe defaults.
+if SQLITE_PATH:
     store = SqliteStore(SQLITE_PATH)
     print(f"Using SQLite store at {SQLITE_PATH}.")
 else:

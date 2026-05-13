@@ -1,11 +1,11 @@
 """
-Run the bot locally via polling — no Vercel, no webhook.
+Run the bot locally via polling — no webhook needed.
 
 This is the SAME bot code that runs in production. The only difference is
 how Telegram delivers messages to us:
 
-    Production (Vercel): Telegram → POST /api/webhook → api/index.py
-    Local (this file):   we ask Telegram "any new messages?" in a loop
+    Production (PythonAnywhere): Telegram → POST /api/webhook → api/index.py
+    Local (this file):           we ask Telegram "any new messages?" in a loop
 
 Polling is perfect for learning and local development because you can
 edit a file, rerun this script, and see your changes instantly — no
@@ -19,11 +19,11 @@ Requirements:
 
         TELEGRAM_BOT_TOKEN=123456:ABC...
         AI_API_KEY=csk-...
-        UPSTASH_REDIS_REST_URL=https://...upstash.io
-        UPSTASH_REDIS_REST_TOKEN=...
 
-    See .env.example for the full list of optional variables.
+    See .env.example for the full list of optional variables
+    (SQLITE_PATH, WEBHOOK_SECRET, HF_SPACE_ID, etc.).
 """
+
 import os
 from pathlib import Path
 
@@ -92,10 +92,9 @@ def main() -> None:
     print(f"Bot @{BOT_INFO.username} starting in polling mode.\n")
 
     # Telegram only allows ONE delivery method at a time (webhook OR
-    # polling, not both). If a webhook is registered — e.g. from a
-    # previous `vercel --prod` + setWebhook — polling will silently
-    # receive zero updates until the webhook is removed. Check first
-    # and ask the user before clobbering a live production webhook.
+    # polling, not both). If a production webhook is registered,
+    # polling will silently receive zero updates until the webhook is
+    # removed. Check first and ask the user before clobbering it.
     info = bot.get_webhook_info()
     if info.url:
         print("WARNING: this bot token already has a webhook registered:")

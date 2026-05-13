@@ -2,15 +2,14 @@
 Mocks all external dependencies before any bot module is imported.
 This lets tests run without real API keys or network connections.
 """
+
 import os
 import sys
 from unittest.mock import MagicMock
 
 # ── Fake environment variables ─────────────────────────────────────────────────
 os.environ["TELEGRAM_BOT_TOKEN"] = "1234567890:fake_token"
-os.environ["AI_API_KEY"]         = "fake_api_key"
-os.environ["UPSTASH_REDIS_REST_URL"]   = "https://fake.upstash.io"
-os.environ["UPSTASH_REDIS_REST_TOKEN"] = "fake_redis_token"
+os.environ["AI_API_KEY"] = "fake_api_key"
 
 # ── Mock external packages ─────────────────────────────────────────────────────
 mock_bot_instance = MagicMock()
@@ -27,9 +26,8 @@ mock_flask_app = MagicMock()
 mock_flask_app.route.return_value = lambda f: f
 mock_flask.Flask.return_value = mock_flask_app
 
-sys.modules["telebot"]         = mock_telebot
-sys.modules["telebot.types"]   = MagicMock()
-sys.modules["openai"]          = MagicMock()
-sys.modules["upstash_redis"]   = MagicMock()
-sys.modules["flask"]           = mock_flask
-sys.modules["gradio_client"]   = MagicMock()
+sys.modules["telebot"] = mock_telebot
+sys.modules["telebot.types"] = MagicMock()
+sys.modules["openai"] = MagicMock()
+sys.modules["flask"] = mock_flask
+sys.modules["gradio_client"] = MagicMock()

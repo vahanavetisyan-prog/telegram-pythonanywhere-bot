@@ -7,8 +7,8 @@ app = Flask(__name__)
 @app.route("/api/health")
 @app.route("/api/index")
 def health():
-    # Keep this endpoint dependency-free so cold-start uptime pings don't
-    # trigger Telegram/Redis/AI client init.
+    # Keep this endpoint dependency-free so uptime pings don't trigger
+    # Telegram/store/AI client init.
     return "OK", 200
 
 
@@ -39,10 +39,10 @@ def webhook():
     if update is None:
         return "Bad Request", 400
 
-    # Dedupe Telegram retries: when our function times out (Vercel cap or
-    # crash), Telegram resends the same update_id. We mark "done" only
-    # AFTER process_new_updates returns successfully, so a real failure
-    # still lets the retry reach the handler.
+    # Dedupe Telegram retries: when our function times out or crashes,
+    # Telegram resends the same update_id. We mark "done" only AFTER
+    # process_new_updates returns successfully, so a real failure still
+    # lets the retry reach the handler.
     update_id = getattr(update, "update_id", None)
     if update_id is not None:
         from bot.dedupe import is_processed, mark_processed

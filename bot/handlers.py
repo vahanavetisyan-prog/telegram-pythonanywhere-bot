@@ -2,7 +2,6 @@ import os
 from datetime import datetime
 from bot.clients import bot, BOT_INFO, store
 from bot.config import MODEL, RATE_LIMIT, HF_SPACE_ID, HOSTING_LABEL
-from bot.store import RedisStore, SqliteStore
 from bot.ai import ask_ai
 from bot.helpers import keep_typing, send_reply, should_respond
 from bot.history import clear_history
@@ -80,12 +79,7 @@ def cmd_about(message):
         model_line = f"{MODEL} (main)" if provider == "main" else f"{HF_SPACE_ID} (hf)"
     else:
         model_line = MODEL
-    if isinstance(store, RedisStore):
-        storage_line = "Upstash Redis"
-    elif isinstance(store, SqliteStore):
-        storage_line = "SQLite"
-    else:
-        storage_line = "stateless (no memory)"
+    storage_line = "SQLite" if store is not None else "stateless (no memory)"
     bot.send_message(
         message.chat.id,
         f"Model  : {model_line}\nStorage: {storage_line}\nHosting: {HOSTING_LABEL}",

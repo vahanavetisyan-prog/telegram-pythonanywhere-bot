@@ -31,8 +31,7 @@ How to wire this up on PA:
 
   4. Reload the web app from the "Web" tab.
 
-Safe to keep checked in alongside the Vercel config — only PA's WSGI
-loader ever imports it.
+Only PA's WSGI loader ever imports this file.
 """
 
 import os
