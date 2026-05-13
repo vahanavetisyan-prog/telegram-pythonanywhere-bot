@@ -3,7 +3,7 @@ from datetime import datetime
 from bot.clients import bot, BOT_INFO, store
 from bot.config import COMMIT_SHA, HF_SPACE_ID, HOSTING_LABEL, MODEL, RATE_LIMIT
 from bot.ai import ask_ai
-from bot.helpers import keep_typing, send_reply, should_respond
+from bot.helpers import is_allowed, keep_typing, send_reply, should_respond
 from bot.history import clear_history
 from bot.preferences import get_provider, set_provider
 from bot.rate_limit import is_rate_limited
@@ -45,7 +45,7 @@ def _log(message, direction: str, text: str) -> None:
     print(f"[{ts}] {sender} → {receiver}: {snippet}", flush=True)
 
 
-@bot.message_handler(commands=["start"])
+@bot.message_handler(commands=["start"], func=is_allowed)
 def cmd_start(message):
     bot.send_message(
         message.chat.id,
@@ -53,7 +53,7 @@ def cmd_start(message):
     )
 
 
-@bot.message_handler(commands=["help"])
+@bot.message_handler(commands=["help"], func=is_allowed)
 def cmd_help(message):
     lines = [
         "/start — welcome message",
@@ -66,13 +66,13 @@ def cmd_help(message):
     bot.send_message(message.chat.id, "\n".join(lines))
 
 
-@bot.message_handler(commands=["reset"])
+@bot.message_handler(commands=["reset"], func=is_allowed)
 def cmd_reset(message):
     clear_history(message.from_user.id)
     bot.send_message(message.chat.id, "Conversation cleared. Starting fresh!")
 
 
-@bot.message_handler(commands=["about"])
+@bot.message_handler(commands=["about"], func=is_allowed)
 def cmd_about(message):
     if HF_SPACE_ID:
         provider = get_provider(message.from_user.id)
@@ -92,7 +92,7 @@ def cmd_about(message):
 
 if HF_SPACE_ID:
 
-    @bot.message_handler(commands=["model"])
+    @bot.message_handler(commands=["model"], func=is_allowed)
     def cmd_model(message):
         parts = (message.text or "").split(maxsplit=1)
         if len(parts) == 1:
@@ -128,7 +128,7 @@ if HF_SPACE_ID:
             bot.send_message(message.chat.id, "Switched to Main Provider.")
 
 
-@bot.message_handler(content_types=["text"], func=lambda m: True)
+@bot.message_handler(content_types=["text"], func=is_allowed)
 def handle_message(message):
     if not should_respond(message):
         return

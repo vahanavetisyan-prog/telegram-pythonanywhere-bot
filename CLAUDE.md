@@ -88,6 +88,7 @@ telegram-vercel-bot/
 | `WEBHOOK_SECRET` | No | _auto-generated_ | Random string Telegram echoes back in `X-Telegram-Bot-Api-Secret-Token`. Auto-bootstrapped on first run: if the env var is unset, `bot/config.py::_bootstrap_webhook_secret()` generates a 64-hex secret, persists it to `.webhook_secret` (gitignored, mode 0600), and reuses it on subsequent boots. The boot-time `register_webhook()` then ships it to Telegram. Set the env var to override / share across envs |
 | `WEBHOOK_URL` | No | — | When set, the bot auto-registers this URL as the Telegram webhook on every worker boot and after every `/api/deploy`. No manual `setWebhook` step needed. Idempotent. On PA, value is `https://<your-pa-username>.pythonanywhere.com/api/webhook`. Leave unset for local polling |
 | `RATE_LIMIT` | No | `250` | Max messages per user per day |
+| `ALLOWED_USERS` | No | _open_ | Comma-separated whitelist of usernames (with/without `@`) or numeric user IDs. Empty = everyone allowed. Non-empty = silent drop for non-whitelisted (no rejection reply, no leak of bot existence). Implemented as `func=is_allowed` on every `@bot.message_handler` so telebot never dispatches the handler |
 | `HOSTING_LABEL` | No | `PythonAnywhere` | Label shown by the `/about` command |
 | `DEPLOY_SECRET` | No | — | Enables `/api/deploy` auto-deploy webhook. Fail-closed: when unset, the endpoint returns 403. Generate with `openssl rand -hex 32` and set the same value as a GitHub repo secret named `DEPLOY_SECRET` so the workflow at `.github/workflows/deploy.yml` can call the endpoint |
 

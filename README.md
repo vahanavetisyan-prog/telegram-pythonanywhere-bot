@@ -312,6 +312,22 @@ Users can now run `/model main` or `/model hf` to switch per-user.
 
 ---
 
+## Lock down to specific users *(optional)*
+
+By default the bot replies to anyone on Telegram. To restrict it to a private allow-list, set `ALLOWED_USERS` in `.env` to a comma-separated list of usernames (with or without `@`) or numeric user IDs:
+
+```
+ALLOWED_USERS=@alice,bob,123456789
+```
+
+When the variable is set, everyone outside the list gets **silence** — no rejection message, no `/start` response, nothing. This is deliberate: any reply would confirm to a scanner that the bot exists. Whitelisted users see normal behavior.
+
+To find your numeric user ID, message [@userinfobot](https://t.me/userinfobot) on Telegram — it replies with your ID. Useful when you have no public username, or want to whitelist by an identifier that can't change later.
+
+Reload (or push) for the change to take effect: the list is read at worker boot.
+
+---
+
 ## Customization reference
 
 | What to change | How |
@@ -319,7 +335,8 @@ Users can now run `/model main` or `/model hf` to switch per-user.
 | Bot personality / instructions | Edit `SYSTEM_PROMPT` in `bot/config.py` |
 | AI model | Set `AI_MODEL` env var (free-tier tested: `llama3.1-8b` (default), `qwen-3-235b-a22b-instruct-2507`, `gpt-oss-120b`) |
 | AI provider | Set `AI_BASE_URL` env var (any OpenAI-compatible endpoint) |
-| Secure the webhook | Set `WEBHOOK_SECRET` env var |
+| Secure the webhook | Auto-generated on first boot — see "Secure the webhook" above |
+| Restrict who can use the bot | Set `ALLOWED_USERS` env var |
 | Daily message limit | Set `RATE_LIMIT` env var (default `250`) |
 | Add a second provider | Set `HF_SPACE_ID` (and optionally `HF_TOKEN`) — enables `/model` command |
 | Conversation memory length | Edit `MAX_HISTORY` in `bot/config.py` |

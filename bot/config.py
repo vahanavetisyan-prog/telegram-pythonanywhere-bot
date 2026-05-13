@@ -110,6 +110,19 @@ SYSTEM_PROMPT = (
 MAX_HISTORY = 20  # messages kept per user (10 conversation turns)
 HISTORY_TTL = 2592000  # conversation history expires after 30 days (seconds)
 RATE_LIMIT = int(os.environ.get("RATE_LIMIT", "250"))  # max messages per user per day
+
+# Comma-separated whitelist of Telegram users. Each entry is either a
+# username (with or without leading @) or a numeric user_id. Empty
+# (default) means everyone can talk to the bot. When non-empty, the
+# bot stays silent for anyone not in the list — silence instead of a
+# rejection message so scanners don't get confirmation the bot exists.
+#
+# Example: ALLOWED_USERS=@alice,bob,123456789
+ALLOWED_USERS = [
+    u.strip().lstrip("@")
+    for u in os.environ.get("ALLOWED_USERS", "").split(",")
+    if u.strip()
+]
 MAX_MSG_LEN = 4096  # Telegram's character limit per message
 # Provider call budget. Total worst case =
 # AI_RETRIES * AI_REQUEST_TIMEOUT + sum of backoff sleeps. With
