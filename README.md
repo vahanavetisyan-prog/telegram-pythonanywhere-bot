@@ -222,6 +222,104 @@ make deploy
 
 ---
 
+## Alternative — Deploy to PythonAnywhere *(free, no card)*
+
+Vercel is the default deployment path above. PythonAnywhere (PA) is an equally valid free host — it runs the same Flask app via a long-lived WSGI worker instead of serverless functions. Pick PA if you prefer a more "traditional Linux box" mental model or already have a PA account.
+
+> **Important — PA free-tier whitelist:** PA restricts outbound HTTPS on the free plan to a whitelist of domains. As of this writing the bot's required services — `api.telegram.org`, `api.cerebras.ai`, `api.tavily.com`, `huggingface.co` — are all whitelisted. **`upstash.io` is NOT.** That means the bot will run in **stateless mode** on PA free tier (no conversation memory, no rate limit, no dedupe, no search cache). The bot itself works fine — these are graceful degradations the code already handles. To unlock full feature parity, post a whitelist request at <https://www.pythonanywhere.com/forums/> asking for `upstash.io` to be added; PA staff typically respond within a few days.
+>
+> **Telegram only allows one webhook per bot token.** If you already registered Vercel's webhook via `make push`, the same bot can't also be live on PA — running the PA `setWebhook` below will overwrite Vercel's registration. Either pick one host at a time, or create a second bot via @BotFather for PA.
+
+### Step 1 — Create a PythonAnywhere account
+
+1. Sign up at [pythonanywhere.com](https://www.pythonanywhere.com) (free Beginner tier — no card)
+2. Verify your email and log in
+3. Your apps will be hosted at `https://<username>.pythonanywhere.com`
+
+### Step 2 — Clone the repo on PA
+
+Open a Bash console from the PA dashboard (Dashboard → "New console" → Bash) and run:
+
+```bash
+git clone https://github.com/<your-username>/telegram-vercel-bot.git
+cd telegram-vercel-bot
+```
+
+### Step 3 — Create a virtualenv and install dependencies
+
+```bash
+mkvirtualenv --python=python3.10 telegram-bot
+pip install -r requirements.txt
+```
+
+`mkvirtualenv` is pre-installed on PA. The virtualenv lives at `/home/<username>/.virtualenvs/telegram-bot` — note this path, you'll need it in Step 5.
+
+### Step 4 — Upload your `.env` to PA
+
+The PA WSGI shim (`pythonanywhere_wsgi.py` in this repo) reads `.env` from the project root, the same way `make run` does locally. Easiest way:
+
+```bash
+# Still in the PA Bash console
+nano .env
+```
+
+Paste in the same values you used locally — at minimum `TELEGRAM_BOT_TOKEN` and `AI_API_KEY`. Leave `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` unset for now (stateless mode). If you set `WEBHOOK_SECRET`, you'll re-use it in Step 7.
+
+> `.env` is in `.gitignore`, so it never gets committed even though you edited it inside a checked-out repo.
+
+### Step 5 — Configure the PA web app
+
+1. In the PA dashboard, go to the **Web** tab → **Add a new web app**
+2. Choose **Manual configuration** (not the Flask wizard — that scaffolds a different layout)
+3. Pick **Python 3.10** to match the virtualenv
+4. After the app is created, scroll down on the Web tab and configure:
+   - **Source code:** `/home/<username>/telegram-vercel-bot`
+   - **Working directory:** `/home/<username>/telegram-vercel-bot`
+   - **Virtualenv:** `/home/<username>/.virtualenvs/telegram-bot`
+
+### Step 6 — Wire up the WSGI file
+
+Still in the Web tab, click **WSGI configuration file** (the link looks like `/var/www/<username>_pythonanywhere_com_wsgi.py`). Delete everything in the editor and replace it with:
+
+```python
+import sys
+
+project_home = "/home/<username>/telegram-vercel-bot"
+if project_home not in sys.path:
+    sys.path.insert(0, project_home)
+
+from pythonanywhere_wsgi import application  # noqa: F401
+```
+
+Substitute your actual PA username on the `project_home` line. Save the file, then go back to the Web tab and click the green **Reload** button.
+
+Test that the worker booted by visiting `https://<username>.pythonanywhere.com/api/health` — it should return `OK`.
+
+### Step 7 — Register the Telegram webhook against PA
+
+Run this from your laptop (or from PA's Bash console — either works). Substitute the token and URL:
+
+```bash
+curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+  --data-urlencode "url=https://<username>.pythonanywhere.com/api/webhook"
+```
+
+If you set `WEBHOOK_SECRET` in your PA `.env`, include it so PA's secret check passes:
+
+```bash
+curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
+  --data-urlencode "url=https://<username>.pythonanywhere.com/api/webhook" \
+  --data-urlencode "secret_token=<your WEBHOOK_SECRET>"
+```
+
+You should see `{"ok":true,...}` in the response. Send your bot a message on Telegram — replies now come from PA.
+
+### Switching back to Vercel later
+
+If you want to flip the same bot back to Vercel, just re-run `make push` and answer `n` to the env prompt — it re-registers the webhook against `PROD_URL` without touching secrets.
+
+---
+
 # Part 3 — Customize it
 
 ## Enable web search *(optional)*
@@ -377,6 +475,7 @@ telegram-vercel-bot/
 ├── run_local.py          # Local polling entry point (used by `make run`)
 ├── requirements.txt
 ├── vercel.json
+├── pythonanywhere_wsgi.py  # WSGI entry point for PythonAnywhere (alternative host)
 ├── CLAUDE.md             # Agent-readable project guide
 └── README.md
 ```

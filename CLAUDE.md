@@ -48,7 +48,8 @@ telegram-vercel-bot/
 ├── run_local.py          # Run the bot locally via polling (no Vercel, no webhook) — for learning + dev
 ├── Makefile              # install / test / deploy shortcuts
 ├── requirements.txt
-├── vercel.json           # Rewrites /api/webhook → api/index.py
+├── vercel.json           # Rewrites /api/webhook → api/index.py (Vercel host)
+├── pythonanywhere_wsgi.py # WSGI entry exposing Flask `app` as `application` for PA host
 ├── CLAUDE.md             # Agent-readable project guide (this file)
 └── README.md             # Student-facing setup guide
 ```
@@ -260,6 +261,24 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<VERCEL_URL>/ap
 
 ---
 
+## Alternative host: PythonAnywhere
+
+The same Flask app at `api/index.py` also runs on PythonAnywhere (PA) free tier via a long-lived WSGI worker — no code changes, just a different entry point (`pythonanywhere_wsgi.py` at repo root, which loads `.env` and exposes `application = app`).
+
+**PA wiring** (manual one-time setup, no CLI equivalent of `make push`):
+- PA's WSGI file at `/var/www/<username>_pythonanywhere_com_wsgi.py` adds the project to `sys.path` and does `from pythonanywhere_wsgi import application`
+- `.env` is uploaded to the PA project directory (read by `pythonanywhere_wsgi.py` at worker startup using the same minimal loader as `run_local.py`)
+- Webhook registration is a one-off `curl setWebhook` against `https://<username>.pythonanywhere.com/api/webhook`
+
+**Critical PA-specific constraints:**
+- **Free-tier outbound HTTPS whitelist.** `api.telegram.org`, `api.cerebras.ai`, `api.tavily.com`, and `huggingface.co` are all on it. **`upstash.io` is NOT** — PA free deployments run in stateless mode unless the user posts a whitelist request at pythonanywhere.com/forums for `upstash.io`. Don't suggest swapping to Turso/Supabase preemptively; the existing stateless-mode fallback already covers this cleanly.
+- **One webhook per bot token.** PA and Vercel can't both be live on the same bot — `setWebhook` overwrites. Switching hosts is just rerunning `setWebhook` against the other URL (or `make push` answering `n` to env). This is the intended workflow for using PA as an "alternative" host without abandoning Vercel.
+- **PA worker is long-lived, not serverless.** `BOT_INFO = bot.get_me()` in `bot/clients.py` runs once per worker reload, not per request. Cold-start latency considerations from the Vercel path don't apply.
+
+The Vercel deployment is the primary/documented prod URL. PA is a secondary path documented in README under "Alternative — Deploy to PythonAnywhere" for users who prefer it.
+
+---
+
 ## Known gotchas
 
 - **`threaded=False` is required** — see "How the bot works" above
@@ -270,4 +289,5 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<VERCEL_URL>/ap
 - **Telegram 4096 char limit** — `send_reply()` in `bot/helpers.py` handles splitting automatically
 - **Group chats** — `should_respond()` returns `True` for all messages, so the bot replies to every message in any chat it's in. If you need mention-gated or reply-gated behavior in groups, reintroduce it in `bot/helpers.py::should_respond`. The handler still strips `@<bot_username>` from text before sending to the AI
 - **Webhook secret must match** — if `WEBHOOK_SECRET` is set, the same value must be passed as `secret_token` in `setWebhook`. Mismatch causes all updates to return 403 and the bot goes silent
+- **One webhook per bot token** — Telegram only allows a single delivery method per token. Re-registering setWebhook against a new URL silently replaces the previous one. This means Vercel, PythonAnywhere, and local polling are mutually exclusive on the same bot. For side-by-side testing, create a second bot via @BotFather
 - **`vercel.json` functions config** — `api/index.py` is pinned to `@vercel/python@4.3.0` with `maxDuration: 60`. HF cold starts eat most of that budget; don't drop the cap without raising HF knobs concerns
