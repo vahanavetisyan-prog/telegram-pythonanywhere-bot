@@ -1,0 +1,30 @@
+name: Deploy to PythonAnywhere
+
+# Triggers the bot's /api/deploy endpoint on every push to main, which
+# runs `git pull` on PA and reloads the worker. Requires two GitHub
+# repo secrets:
+#
+#   PA_DEPLOY_URL    e.g. https://<your-pa-username>.pythonanywhere.com/api/deploy
+#   DEPLOY_SECRET    must match the DEPLOY_SECRET in PA's .env
+#
+# Add them in your repo: Settings -> Secrets and variables -> Actions.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # also allow manual triggers from the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger PA deploy
+        run: |
+          if [ -z "${{ secrets.PA_DEPLOY_URL }}" ] || [ -z "${{ secrets.DEPLOY_SECRET }}" ]; then
+            echo "::warning::PA_DEPLOY_URL or DEPLOY_SECRET not set in repo secrets; skipping deploy."
+            exit 0
+          fi
+          curl -fsS -X POST \
+            -H "X-Deploy-Secret: ${{ secrets.DEPLOY_SECRET }}" \
+            --max-time 60 \
+            "${{ secrets.PA_DEPLOY_URL }}"

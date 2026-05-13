@@ -26,6 +26,12 @@ SQLITE_PATH = os.environ.get("SQLITE_PATH", "").strip()
 # that is the documented deployment target. Override to suit your host.
 HOSTING_LABEL = os.environ.get("HOSTING_LABEL", "PythonAnywhere").strip()
 
+# Auto-deploy webhook secret. When set, /api/deploy accepts requests
+# that present this value in the X-Deploy-Secret header and runs
+# `git pull` + WSGI reload. When unset, /api/deploy returns 403 — the
+# endpoint is fail-closed.
+DEPLOY_SECRET = os.environ.get("DEPLOY_SECRET", "").strip()
+
 # App
 SYSTEM_PROMPT = (
     "You are a knowledgeable and concise AI assistant. "

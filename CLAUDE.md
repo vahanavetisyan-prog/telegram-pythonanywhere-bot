@@ -42,10 +42,12 @@ telegram-vercel-bot/
 │   ├── test_rate_limit.py
 │   ├── test_dedupe.py
 │   ├── test_store.py     # Direct SqliteStore tests (get/set/delete/incr/expire + TTL)
+│   ├── test_deploy.py    # /api/deploy auto-deploy webhook (secret verification + git pull)
 │   └── test_webhook.py
 ├── .github/
 │   └── workflows/
-│       └── ci.yml        # Runs pytest on every push and pull request
+│       ├── ci.yml        # Runs pytest on every push and pull request
+│       └── deploy.yml    # Triggers PA auto-deploy via /api/deploy on push to main
 ├── .env.example          # Template for required environment variables
 ├── run_local.py          # Run the bot locally via polling — for learning + dev
 ├── pythonanywhere_wsgi.py # WSGI entry exposing Flask `app` as `application` for PA
@@ -86,6 +88,7 @@ telegram-vercel-bot/
 | `WEBHOOK_SECRET` | No | — | Random string to verify requests come from Telegram |
 | `RATE_LIMIT` | No | `250` | Max messages per user per day |
 | `HOSTING_LABEL` | No | `PythonAnywhere` | Label shown by the `/about` command |
+| `DEPLOY_SECRET` | No | — | Enables `/api/deploy` auto-deploy webhook. Fail-closed: when unset, the endpoint returns 403. Generate with `openssl rand -hex 32` and set the same value as a GitHub repo secret named `DEPLOY_SECRET` so the workflow at `.github/workflows/deploy.yml` can call the endpoint |
 
 All env vars are read in `bot/config.py`. `.strip()` is called on every value to defend against trailing newlines / whitespace from copy-paste.
 
@@ -180,6 +183,8 @@ The deployment target is `https://<your-pa-username>.pythonanywhere.com`. The sa
 - Webhook registration is a one-off `curl setWebhook` against `https://<your-pa-username>.pythonanywhere.com/api/webhook`
 
 **Re-deploying after a `git pull`:** PA workers don't auto-reload. Either click "Reload" on the Web tab, or `touch /var/www/<your-pa-username>_pythonanywhere_com_wsgi.py` in a Bash console (changing the WSGI file's mtime triggers a worker reload).
+
+**Auto-deploy on push to main.** When `DEPLOY_SECRET` is set in PA's `.env`, the `/api/deploy` endpoint accepts authenticated POSTs that run `git pull --ff-only` in the project dir and `touch` the PA WSGI file. `.github/workflows/deploy.yml` triggers on push to `main` and hits the endpoint using two repo secrets: `DEPLOY_SECRET` (matches PA env var) and `PA_DEPLOY_URL` (the deploy URL). The endpoint fails-closed (403) when `DEPLOY_SECRET` is unset and uses `hmac.compare_digest` for secret comparison. The workflow skips with a warning when its secrets aren't set, so this is fully optional.
 
 **Critical PA-specific constraints:**
 - **Free-tier outbound HTTPS whitelist.** `api.telegram.org`, `api.cerebras.ai`, `huggingface.co` are all on it. Most other domains aren't — if you add a feature that calls a new service, check `https://www.pythonanywhere.com/whitelist/` first. To request a new domain be added, post on the PA forums.

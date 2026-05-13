@@ -240,6 +240,39 @@ cd ~/telegram-vercel-bot && git pull && touch /var/www/<your-pa-username>_python
 
 ---
 
+## Step 14 — Auto-deploy on every push *(optional but recommended)*
+
+The bot ships with a `/api/deploy` endpoint and a GitHub Actions workflow that work together to redeploy the bot every time you push to `main` — no more manual `git pull`.
+
+1. Generate a random secret:
+
+```bash
+openssl rand -hex 32
+```
+
+2. Add it to your PA `.env`:
+
+```
+DEPLOY_SECRET=<the secret you just generated>
+```
+
+3. Reload your PA web app (Web tab → green **Reload** button) so the new env var is picked up.
+
+4. On GitHub, go to your fork → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**, and add two secrets:
+
+| Name | Value |
+|---|---|
+| `DEPLOY_SECRET` | the same value you put in PA's `.env` |
+| `PA_DEPLOY_URL` | `https://<your-pa-username>.pythonanywhere.com/api/deploy` |
+
+5. Push any change to `main`. The `Deploy to PythonAnywhere` GitHub Action triggers automatically, hits `/api/deploy` with the secret header, and PA pulls the new commit and reloads. End-to-end takes ~3 seconds.
+
+You can also trigger a deploy manually from GitHub: **Actions** tab → **Deploy to PythonAnywhere** → **Run workflow**.
+
+If the secrets aren't set, the workflow skips with a warning instead of failing — so this is fully optional, the rest of the repo keeps working without it.
+
+---
+
 # Part 3 — Customize it
 
 ## Secure the webhook *(recommended)*
@@ -335,7 +368,8 @@ telegram-vercel-bot/
 │   └── test_webhook.py
 ├── .github/
 │   └── workflows/
-│       └── ci.yml        # Runs tests on every push and pull request
+│       ├── ci.yml        # Runs tests on every push and pull request
+│       └── deploy.yml    # Triggers PA auto-deploy via /api/deploy on push to main
 ├── .env.example          # Copy to .env for local dev (never commit .env)
 ├── .gitignore
 ├── Makefile              # install / run / test shortcuts

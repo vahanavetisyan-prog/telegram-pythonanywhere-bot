@@ -1,4 +1,6 @@
 import hmac
+import os
+import subprocess
 from flask import Flask, request
 
 app = Flask(__name__)
@@ -54,3 +56,58 @@ def webhook():
     else:
         bot.process_new_updates([update])
     return "OK", 200
+
+
+# Project root — used by /api/deploy to scope `git pull` correctly.
+# api/index.py is at <repo>/api/index.py, so two dirname() calls give us the repo root.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _pa_wsgi_path() -> str:
+    """Return the PythonAnywhere WSGI file path for the current user, or
+    empty string if not running on PA. Touching this file triggers a
+    graceful worker reload on the next request."""
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+    if not user:
+        return ""
+    candidate = f"/var/www/{user}_pythonanywhere_com_wsgi.py"
+    return candidate if os.path.exists(candidate) else ""
+
+
+@app.route("/api/deploy", methods=["POST"])
+def deploy():
+    """Auto-deploy webhook. Pulls the latest commit and reloads the PA worker.
+
+    Verifies an X-Deploy-Secret header against DEPLOY_SECRET. Fail-closed:
+    returns 403 if the env var is unset, so a misconfigured deploy can't
+    accidentally allow arbitrary callers to trigger code execution.
+    """
+    from bot.config import DEPLOY_SECRET
+
+    if not DEPLOY_SECRET:
+        return "Deploy endpoint disabled (DEPLOY_SECRET unset)", 403
+
+    provided = request.headers.get("X-Deploy-Secret", "")
+    if not hmac.compare_digest(provided, DEPLOY_SECRET):
+        return "Forbidden", 403
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", _PROJECT_ROOT, "pull", "--ff-only"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return "git pull timed out", 504
+
+    if result.returncode != 0:
+        return f"git pull failed:\n{result.stderr}", 500
+
+    # Touch the PA WSGI file so the next request boots a fresh worker
+    # with the new code. No-op when not running on PA.
+    wsgi_path = _pa_wsgi_path()
+    if wsgi_path:
+        os.utime(wsgi_path, None)
+
+    return f"OK\n{result.stdout}", 200
