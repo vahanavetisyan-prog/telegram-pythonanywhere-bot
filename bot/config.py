@@ -28,6 +28,11 @@ UPSTASH_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").strip()
 UPSTASH_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "").strip()
 SQLITE_PATH = os.environ.get("SQLITE_PATH", "").strip()
 
+# Label shown by the /about command. Defaults to "Vercel" so existing
+# Vercel deployments keep their wording. Set to e.g. "PythonAnywhere"
+# on alternative hosts.
+HOSTING_LABEL = os.environ.get("HOSTING_LABEL", "Vercel").strip()
+
 # Search
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "").strip()
 

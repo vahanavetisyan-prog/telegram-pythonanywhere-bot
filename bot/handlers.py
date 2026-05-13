@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 from bot.clients import bot, BOT_INFO, store
-from bot.config import MODEL, RATE_LIMIT, HF_SPACE_ID
+from bot.config import MODEL, RATE_LIMIT, HF_SPACE_ID, HOSTING_LABEL
 from bot.store import RedisStore, SqliteStore
 from bot.ai import ask_ai
 from bot.helpers import keep_typing, send_reply, should_respond
@@ -88,7 +88,7 @@ def cmd_about(message):
         storage_line = "stateless (no memory)"
     bot.send_message(
         message.chat.id,
-        f"Model  : {model_line}\nStorage: {storage_line}\nHosting: Vercel",
+        f"Model  : {model_line}\nStorage: {storage_line}\nHosting: {HOSTING_LABEL}",
     )
 
 
