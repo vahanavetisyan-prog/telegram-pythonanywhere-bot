@@ -29,7 +29,8 @@ def test_register_webhook_calls_set_webhook_with_url():
 
         msg = register_webhook()
         mock_bot.set_webhook.assert_called_once_with(
-            url="https://example.com/api/webhook"
+            url="https://example.com/api/webhook",
+            max_connections=1,
         )
         assert "https://example.com/api/webhook" in msg
 
@@ -45,6 +46,7 @@ def test_register_webhook_includes_secret_when_set():
         register_webhook()
         kwargs = mock_bot.set_webhook.call_args.kwargs
         assert kwargs["secret_token"] == "topsecret"
+        assert kwargs["max_connections"] == 1
 
 
 def test_register_webhook_does_not_raise_on_failure():

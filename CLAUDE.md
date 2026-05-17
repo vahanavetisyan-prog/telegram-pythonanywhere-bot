@@ -140,6 +140,8 @@ Preferences are stored via `store` under `provider:{user_id}` (no TTL). If the s
 
 To switch to a different HF space, change `HF_SPACE_ID` and confirm the target space exposes a `/generate` API with the same signature, or adapt `_call_hf` in `bot/providers.py`.
 
+**PA outbound-whitelist caveat for HF Spaces.** `gradio_client` first fetches the space config from `huggingface.co` (whitelisted) and then routes `predict()` calls to `<space-subdomain>.hf.space` (NOT explicitly whitelisted as of last check). If `/model hf` hangs or 403s on PA but works locally, that's almost certainly the cause — verify with `curl -I https://<space>.hf.space/` from a PA Bash console, and if blocked, request `*.hf.space` on the PA forum whitelist thread. `bot/providers.py::_call_hf` passes `httpx_kwargs={"timeout": HF_REQUEST_TIMEOUT}` so a blocked subdomain fails fast instead of wedging the worker.
+
 ---
 
 ## Webhook verification

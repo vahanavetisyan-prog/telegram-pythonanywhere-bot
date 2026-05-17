@@ -51,7 +51,11 @@ def _bootstrap_webhook_secret(file_path: Path = _WEBHOOK_SECRET_FILE) -> str:
         return env_value
     try:
         if file_path.exists():
-            return file_path.read_text().strip()
+            existing = file_path.read_text().strip()
+            # Empty or whitespace-only file: treat as missing and regenerate,
+            # otherwise we'd silently disable webhook auth.
+            if existing:
+                return existing
         new_secret = _secrets_mod.token_hex(32)
         file_path.write_text(new_secret)
         try:
@@ -129,3 +133,9 @@ MAX_MSG_LEN = 4096  # Telegram's character limit per message
 # retries=2 and timeout=25s plus 1s backoff: 25 + 1 + 25 = 51s.
 AI_REQUEST_TIMEOUT = 25  # seconds, applied per-attempt to OpenAI-compatible calls
 AI_RETRIES = 2  # total attempts (not extra retries) — 2 means one retry on failure
+# HF Gradio request timeout. Without this a hung `predict()` would occupy the
+# PA worker indefinitely; combined with the dedupe pre-claim, Telegram's
+# retries get silently dropped for ~10 min. Tuned to give ArmGPT enough
+# headroom for cold-start jitter while still freeing the worker before
+# Telegram's webhook timeout (~60s).
+HF_REQUEST_TIMEOUT = 50

@@ -1,7 +1,14 @@
 import re
 import time
 from bot.clients import ai
-from bot.config import AI_REQUEST_TIMEOUT, AI_RETRIES, MODEL, HF_SPACE_ID, HF_TOKEN
+from bot.config import (
+    AI_REQUEST_TIMEOUT,
+    AI_RETRIES,
+    HF_REQUEST_TIMEOUT,
+    HF_SPACE_ID,
+    HF_TOKEN,
+    MODEL,
+)
 from bot.preferences import get_provider
 
 # HF Gradio knobs — hardcoded defaults for ArmGPT
@@ -66,7 +73,14 @@ def _call_hf(messages: list) -> str:
     from gradio_client import Client
 
     prompt = _last_user_message(messages)
-    client = Client(HF_SPACE_ID, hf_token=HF_TOKEN or None)
+    # httpx_kwargs caps every underlying HTTP call (config fetch + predict)
+    # so a hung Space can't wedge the PA worker past Telegram's webhook
+    # timeout — without it, dedupe pre-claim would silently swallow retries.
+    client = Client(
+        HF_SPACE_ID,
+        hf_token=HF_TOKEN or None,
+        httpx_kwargs={"timeout": HF_REQUEST_TIMEOUT},
+    )
     result = client.predict(
         prompt,
         HF_LENGTH,

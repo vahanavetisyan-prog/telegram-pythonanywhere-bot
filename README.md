@@ -216,14 +216,17 @@ Test that the worker booted by visiting `https://<your-pa-username>.pythonanywhe
 
 If you set `WEBHOOK_URL` in Step 9, the bot auto-registers the webhook the first time the PA worker boots. Visit `https://<your-pa-username>.pythonanywhere.com/api/health` in a browser to force the worker to start, then open Telegram, find your bot, and send a message. Replies will come from PythonAnywhere.
 
-If you'd prefer to register the webhook manually (or skipped `WEBHOOK_URL`), run this from your laptop or PA's Bash console:
+If you'd prefer to register the webhook manually (or skipped `WEBHOOK_URL`), run this from PA's Bash console (it reads `.webhook_secret`, which is auto-generated on first worker boot):
 
 ```bash
+cd ~/telegram-vercel-bot
 curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
-  --data-urlencode "url=https://<your-pa-username>.pythonanywhere.com/api/webhook"
+  --data-urlencode "url=https://<your-pa-username>.pythonanywhere.com/api/webhook" \
+  --data-urlencode "secret_token=$(cat .webhook_secret)" \
+  --data-urlencode "max_connections=1"
 ```
 
-You should see `{"ok":true,...}` in the response.
+The `secret_token` matches the bot's auto-generated `WEBHOOK_SECRET` — without it, every update gets rejected with 403. You should see `{"ok":true,...}` in the response.
 
 ---
 

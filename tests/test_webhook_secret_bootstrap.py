@@ -40,6 +40,21 @@ def test_bootstrap_generates_new_secret_when_missing(tmp_path, monkeypatch):
     assert path.read_text() == result
 
 
+def test_bootstrap_regenerates_when_file_is_empty(tmp_path, monkeypatch):
+    """An empty or whitespace-only .webhook_secret used to silently disable
+    webhook auth — register_webhook then registered without a secret_token
+    while api/index.py still required the header, breaking the bot. The
+    bootstrap must treat an empty file as missing and regenerate."""
+    monkeypatch.delenv("WEBHOOK_SECRET", raising=False)
+    path = tmp_path / ".webhook_secret"
+    path.write_text("   \n")  # whitespace only
+    result = _bootstrap_webhook_secret(file_path=path)
+    assert re.fullmatch(r"[0-9a-f]{64}", result), (
+        f"expected fresh secret, got {result!r}"
+    )
+    assert path.read_text() == result
+
+
 def test_bootstrap_persisted_secret_survives_second_call(tmp_path, monkeypatch):
     """Two calls return the same secret — important so the value the bot
     registers with Telegram matches the one it uses to verify subsequent

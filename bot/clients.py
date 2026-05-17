@@ -11,18 +11,36 @@ from bot.store import SqliteStore
 bot = telebot.TeleBot(TELEGRAM_TOKEN, threaded=False)
 ai = OpenAI(base_url=AI_BASE_URL, api_key=AI_API_KEY)
 
+
 # Persistent storage is optional. Set SQLITE_PATH to the absolute path
 # of a SQLite file to enable history / rate limiting / preferences /
 # dedupe. Without it the bot runs in stateless mode — every consumer
 # in bot/ checks `store is None` and falls back to safe defaults.
-if SQLITE_PATH:
-    store = SqliteStore(SQLITE_PATH)
-    print(f"Using SQLite store at {SQLITE_PATH}.")
-else:
-    store = None
-    print(
-        "Storage not configured — running in stateless mode (no memory, no rate limit)."
-    )
+def _init_store(path: str):
+    """Initialize the SQLite store or fall back to stateless mode.
+
+    A bad SQLITE_PATH (unwritable dir, locked file, corrupt DB) used to
+    crash worker boot. Now we degrade to None instead — the bot still
+    answers messages, just without history / rate-limit / dedupe / prefs.
+    """
+    if not path:
+        print(
+            "Storage not configured — running in stateless mode (no memory, no rate limit)."
+        )
+        return None
+    try:
+        s = SqliteStore(path)
+        print(f"Using SQLite store at {path}.")
+        return s
+    except Exception as e:
+        print(
+            f"SqliteStore init failed for {path!r} ({e}) — "
+            "falling back to stateless mode."
+        )
+        return None
+
+
+store = _init_store(SQLITE_PATH)
 
 
 class _LazyBotInfo:
@@ -96,7 +114,12 @@ def register_webhook() -> str:
         return f"WEBHOOK_URL has no path; Telegram needs a real endpoint — skipping ({WEBHOOK_URL!r})"
 
     try:
-        kwargs = {"url": WEBHOOK_URL}
+        # max_connections=1 serializes Telegram deliveries to the worker.
+        # bot/history.py + bot/preferences.py do read-modify-write against
+        # the SQLite store; without this, two quick messages from the same
+        # user can interleave and lose a turn. PA's single-worker free tier
+        # makes this cheap — at most one update in flight at a time anyway.
+        kwargs = {"url": WEBHOOK_URL, "max_connections": 1}
         if WEBHOOK_SECRET:
             kwargs["secret_token"] = WEBHOOK_SECRET
         result = bot.set_webhook(**kwargs)
