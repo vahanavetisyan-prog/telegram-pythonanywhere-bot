@@ -120,6 +120,32 @@ Once the bot works locally, the next step is to put it on PythonAnywhere so it k
 
 > **PA free-tier note.** PA restricts outbound HTTPS on the free plan to a whitelist of domains. The services this template uses (Telegram, Cerebras, Hugging Face) are all whitelisted, so no extra setup is needed. Persistent state lives in SQLite on PA's disk — no external Redis or database is required.
 
+## Fast path — one-command deploy *(optional, skip Steps 7–12)*
+
+If you just want to ship and don't care to learn what each step does, you can do the whole PA setup from your laptop with a single command. **You still have to do Step 6 (sign up + email verify) in the browser — PA has no API for account creation.**
+
+After signing up:
+
+1. Grab a PA API token: <https://www.pythonanywhere.com/account/#api_token> → **Create new API token** → copy the value
+2. Add two lines to your local `.env`:
+
+```
+PA_USERNAME=<your PA username>
+PA_API_TOKEN=<the token you just copied>
+```
+
+3. Run:
+
+```bash
+make deploy-pa
+```
+
+The script (`scripts/pa_deploy.sh`) creates the PA web app, opens a bash console, clones your repo, creates the virtualenv, installs deps, uploads a PA-flavoured `.env` (with `SQLITE_PATH` + `WEBHOOK_URL` filled in), uploads the WSGI shim, configures the web app, and reloads. It pauses once and asks you to **open one URL in your browser** — PA requires that each new bash console be visited once before its API will accept commands. After that it's hands-off.
+
+The script is idempotent — re-running heals partial state (e.g. if you closed the terminal while pip was still installing), or pushes an updated `.env`. For ongoing code updates, Step 14 below (GitHub Actions auto-deploy on push) is still the smoothest path; this script is most useful for the first deploy and for recovery.
+
+If you'd rather understand what the script is doing, do Steps 7–12 manually instead — they're the same work, step by step.
+
 ## Step 6 — Create a PythonAnywhere account
 
 1. Sign up at [pythonanywhere.com](https://www.pythonanywhere.com) (free Beginner tier — no card)
@@ -402,6 +428,7 @@ telegram-vercel-bot/
 make install    # set up virtual environment and install dependencies
 make run        # run the bot locally via polling (no PA needed, reads .env)
 make test       # run all tests
+make deploy-pa  # one-command PythonAnywhere deploy (see "Fast path" in Part 2)
 ```
 
 ---
