@@ -10,11 +10,12 @@ from bot.clients import store
 # claim — only the first does, the second sees False and skips. This
 # fixes a TOCTOU race that the previous "check then mark" pattern had.
 #
-# Trade-off vs. the old "mark after success" pattern: a crash mid-flight
-# now causes the retry to be dropped (within DEDUPE_TTL) instead of
-# producing a duplicate reply. For a teaching bot, message loss on rare
-# crashes is the better failure mode — duplicate replies confuse users
-# and burn rate limit.
+# When processing crashes after a successful claim, the webhook calls
+# `release` so Telegram's retry isn't silently dropped — a crash means
+# the reply almost certainly wasn't sent, so reprocessing beats message
+# loss (observed in production: a transient PA proxy 503 made every
+# handler 500, and dedupe then ate each retry). Slow-but-successful runs
+# raise nothing, so the duplicate-reply protection is unaffected.
 
 DEDUPE_TTL = 600  # seconds
 
@@ -37,3 +38,19 @@ def try_acquire(update_id: int) -> bool:
     except Exception as e:
         print(f"Store error (dedupe acquire): {e}")
         return True
+
+
+def release(update_id: int) -> None:
+    """Release a claim taken by `try_acquire`.
+
+    Called when processing crashed after the claim, so Telegram's retry
+    of the same update_id can be processed instead of being dropped.
+    Best-effort: a storage error just logs (the claim then expires via
+    DEDUPE_TTL).
+    """
+    if store is None:
+        return
+    try:
+        store.delete(f"update:{update_id}")
+    except Exception as e:
+        print(f"Store error (dedupe release): {e}")

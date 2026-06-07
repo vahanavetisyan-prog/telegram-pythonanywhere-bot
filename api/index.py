@@ -61,7 +61,17 @@ def webhook():
             # Already claimed by another delivery or a prior successful run.
             return "OK", 200
 
-    bot.process_new_updates([update])
+    try:
+        bot.process_new_updates([update])
+    except Exception:
+        # Processing crashed — release the dedupe claim so Telegram's
+        # retry of this update_id isn't silently dropped, then let the
+        # 500 propagate so Telegram knows to retry.
+        if update_id is not None:
+            from bot.dedupe import release
+
+            release(update_id)
+        raise
     return "OK", 200
 
 

@@ -73,6 +73,44 @@ def test_webhook_dedupes_concurrently_claimed_update():
         mock_bot.process_new_updates.assert_not_called()
 
 
+def test_webhook_releases_dedupe_claim_when_processing_crashes():
+    """If the handler raises (e.g. a PA proxy blip killed the Telegram
+    send), the dedupe claim must be released so Telegram's retry of the
+    same update_id is processed instead of silently dropped — and the
+    exception must propagate so Telegram sees a non-200 and retries."""
+    import sys
+
+    import pytest
+
+    mock_request = MagicMock()
+    mock_request.headers.get.return_value = ""
+    mock_request.get_data.return_value = "{}"
+    fake_update = MagicMock(update_id=77)
+    mock_bot = MagicMock()
+    mock_bot.process_new_updates.side_effect = RuntimeError("proxy 503")
+    with (
+        patch("bot.config.WEBHOOK_SECRET", ""),
+        patch("api.index.request", mock_request),
+        patch("bot.clients.bot", mock_bot),
+        patch("bot.dedupe.try_acquire", return_value=True),
+        patch("bot.dedupe.release") as mock_release,
+        # NOTE: api.index reaches de_json via `import telebot`, so patch
+        # the attribute on the conftest telebot mock — the string target
+        # "telebot.types.Update.de_json" would hit the separate
+        # sys.modules["telebot.types"] mock instead.
+        patch.object(
+            sys.modules["telebot"].types.Update,
+            "de_json",
+            return_value=fake_update,
+        ),
+    ):
+        from api.index import webhook
+
+        with pytest.raises(RuntimeError):
+            webhook()
+        mock_release.assert_called_once_with(77)
+
+
 def test_webhook_handles_malformed_json():
     import sys
 
