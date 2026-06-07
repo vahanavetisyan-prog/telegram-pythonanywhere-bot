@@ -223,7 +223,7 @@ TMP_ENV="$(mktemp -t pa_env.XXXXXX)"
 trap 'rm -f "$TMP_ENV"' EXIT
 
 emit() { printf '%s=%s\n' "$1" "$2" >> "$TMP_ENV"; }
-emit_if_set() { [ -n "${!1:-}" ] && emit "$1" "${!1}"; }
+emit_if_set() { if [ -n "${!1:-}" ]; then emit "$1" "${!1}"; fi; }
 
 emit TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN"
 emit AI_API_KEY         "$AI_API_KEY"
