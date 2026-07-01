@@ -124,6 +124,7 @@ def test_cmd_about_with_sqlite():
         patch("bot.handlers.bot") as mock_bot,
         patch("bot.handlers.store", MagicMock()),
         patch("bot.handlers.HF_SPACE_ID", ""),
+        patch("bot.handlers.generate", return_value="I'm a friendly helper."),
     ):
         from bot.handlers import cmd_about
 
@@ -142,6 +143,7 @@ def test_cmd_about_includes_commit_sha_when_set():
         patch("bot.handlers.store", MagicMock()),
         patch("bot.handlers.HF_SPACE_ID", ""),
         patch("bot.handlers.COMMIT_SHA", "abc1234"),
+        patch("bot.handlers.generate", return_value="I'm a friendly helper."),
     ):
         from bot.handlers import cmd_about
 
@@ -158,6 +160,7 @@ def test_cmd_about_omits_version_line_when_sha_unknown():
         patch("bot.handlers.store", MagicMock()),
         patch("bot.handlers.HF_SPACE_ID", ""),
         patch("bot.handlers.COMMIT_SHA", ""),
+        patch("bot.handlers.generate", return_value="I'm a friendly helper."),
     ):
         from bot.handlers import cmd_about
 
@@ -174,6 +177,7 @@ def test_cmd_about_without_store():
         patch("bot.handlers.bot") as mock_bot,
         patch("bot.handlers.store", None),
         patch("bot.handlers.HF_SPACE_ID", ""),
+        patch("bot.handlers.generate", return_value="I'm a friendly helper."),
     ):
         from bot.handlers import cmd_about
 
