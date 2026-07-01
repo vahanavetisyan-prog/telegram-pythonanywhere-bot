@@ -1,8 +1,11 @@
 import os
+import json 
+import random
 from datetime import datetime
 from bot.clients import bot, BOT_INFO, store
 from bot.config import COMMIT_SHA, HF_SPACE_ID, HOSTING_LABEL, MODEL, RATE_LIMIT
 from bot.ai import ask_ai
+from bot.providers import generate
 from bot.helpers import is_allowed, keep_typing, send_reply, should_respond
 from bot.history import clear_history
 from bot.preferences import get_provider, set_provider
@@ -49,17 +52,71 @@ def _log(message, direction: str, text: str) -> None:
 def cmd_start(message):
     bot.send_message(
         message.chat.id,
-        "Hello! I'm your AI assistant. Send me a message to get started.\n\nUse /help to see available commands.",
+        "Բարև! Ես Telegram բոտ եմ, որը կարող է պատասխանել ձեր հարցերին և օգնել ձեզ տարբեր թեմաներով՝ Պատմություն,Մաթեմատիկա,Ֆուտբոլ,Ծրագրավորում և այլն   : ",
     )
+
+@bot.message_handler(commands=["joke"], func=is_allowed)
+def cmd_joke(message):
+ reply = ask_ai(message.from_user.id, "Tell one short, clean programming joke.")
+ bot.send_message(message.chat.id, reply)
+
+@bot.message_handler(commands=["quote"], func=is_allowed)
+def cmd_quote(message):
+    reply = ask_ai(
+        message.from_user.id,
+        "Share one original, uplifting motivational line you have written yourself. "
+        "Keep it to a single short sentence and do not attribute it to anyone famous.",
+    )
+    bot.send_message(message.chat.id, reply)
+
+@bot.message_handler(commands=["fact"], func=is_allowed)
+def cmd_fact(message):
+    reply = ask_ai(
+        message.from_user.id,
+        "Tell me one surprising, true fact in a single short sentence.",
+    )
+    bot.send_message(message.chat.id, reply)
+
+@bot.message_handler(commands=["compliment"], func=is_allowed)
+def cmd_compliment(message):
+    reply = ask_ai(
+        message.from_user.id,
+        "Give me one warm, genuine compliment to brighten my day. "
+        "Keep it to a single short, uplifting sentence.",
+    )
+    bot.send_message(message.chat.id, reply)
+
+@bot.message_handler(commands=["roll"], func=is_allowed)
+def cmd_roll(message):
+    # The odd one out: no AI call — a plain dice roll in pure Python.
+    result = random.randint(1, 6)
+    bot.send_message(message.chat.id, f"🎲 You rolled a {result}!")
+
+@bot.message_handler(commands=["roast"], func=is_allowed)
+def cmd_roast(message):
+ name = message.text.split(maxsplit=1)[1] if " " in message.text else "you"
+ reply = ask_ai(message.from_user.id, f"Write a short, playful, friendly roast of {name}.")
+ bot.send_message(message.chat.id, reply)
 
 
 @bot.message_handler(commands=["help"], func=is_allowed)
 def cmd_help(message):
     lines = [
-        "/start — welcome message",
-        "/help  — show this message",
-        "/reset — clear conversation history",
-        "/about — about this bot",
+        ask_ai(message.from_user.id, "Introduce yourself in two sentences and tell me how you can help me. "),
+        "",
+        "Commands:",
+        "/start — start the bot and see a welcome message",
+        "/help — show this list of commands",
+        "/about — learn more about me",
+        "/reset — clear our conversation and start fresh",
+        "/joke — hear a short programming joke",
+        "/quote — get an original motivational line",
+        "/fact — learn a surprising fact",
+        "/compliment — get a compliment to brighten your day",
+        "/roll — roll a six-sided dice",
+        "/roast — get a playful roast for yourself or a friend ",
+        "remember <text> — add a note (not replace!)",
+        "recall — show your saved note",
     ]
     if HF_SPACE_ID:
         lines.append("/model — switch AI provider")
@@ -71,6 +128,19 @@ def cmd_reset(message):
     clear_history(message.from_user.id)
     bot.send_message(message.chat.id, "Conversation cleared. Starting fresh!")
 
+@bot.message_handler(commands=["remember"], func=is_allowed)
+def cmd_remember(message):
+ note = message.text.split(maxsplit=1)[1] if " " in message.text else ""
+ notes = _load_notes(message.from_user.id)
+ notes.append(note)
+ store.set(f"note:{message.from_user.id}", json.dumps(notes))
+ bot.send_message(message.chat.id, "Saved!")
+
+@bot.message_handler(commands=["recall"], func=is_allowed)
+def cmd_recall(message):
+ notes = _load_notes(message.from_user.id)
+ bot.send_message(message.chat.id, note if note else "You have no saved notes yet.")
+
 
 @bot.message_handler(commands=["about"], func=is_allowed)
 def cmd_about(message):
@@ -80,7 +150,45 @@ def cmd_about(message):
     else:
         model_line = MODEL
     storage_line = "SQLite" if store is not None else "stateless (no memory)"
-    lines = [
+
+    # Ask the AI to introduce itself, generated fresh each time. Uses
+    # generate() directly (not ask_ai) so this one-off intro never touches
+    # the user's saved conversation history. We deliberately do NOT pass
+    # SYSTEM_PROMPT here — otherwise the model parrots those instructions
+    # back. Instead we give it a self-contained persona brief, and pick a
+    # random angle each call so the intro stays varied and dynamic.
+    angles = [
+        "Mention a quirky fun fact about how you 'think'.",
+        "Frame it like you're meeting a new friend for the first time.",
+        "Include a tiny bit of playful humor.",
+        "Describe the kinds of questions that excite you most.",
+        "Share what your ideal conversation feels like.",
+        "Use a warm, encouraging tone like a favorite teacher.",
+    ]
+    persona_prompt = (
+        "You are the friendly AI assistant inside a Telegram bot. In 2-3 short, "
+        "lively sentences, introduce yourself to a user: make clear that you are an "
+        "AI assistant, and describe your personality and your vibe. Speak in the "
+        "first person. Do NOT mention rules, instructions, system prompts, the "
+        "underlying model, or other technical details. " + random.choice(angles)
+    )
+    personality = ""
+    try:
+        with keep_typing(message.chat.id):
+            personality = generate(
+                message.from_user.id,
+                [{"role": "user", "content": persona_prompt}],
+            )
+    except Exception as e:
+        # Never let a slow/failed AI call break /about — fall back to the
+        # technical info below.
+        print(f"Error generating /about personality: {e}")
+
+    lines = []
+    if personality.strip():
+        lines.append(personality.strip())
+        lines.append("")
+    lines += [
         f"Model  : {model_line}",
         f"Storage: {storage_line}",
         f"Hosting: {HOSTING_LABEL}",
