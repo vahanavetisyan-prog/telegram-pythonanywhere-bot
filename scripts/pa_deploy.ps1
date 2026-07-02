@@ -102,11 +102,17 @@ $CloneUrl = $RepoUrl.Trim()
 if ($CloneUrl -like 'git@github.com:*')        { $CloneUrl = 'https://github.com/' + $CloneUrl.Substring('git@github.com:'.Length) }
 elseif ($CloneUrl -like 'ssh://git@github.com/*') { $CloneUrl = 'https://github.com/' + $CloneUrl.Substring('ssh://git@github.com/'.Length) }
 
+# PA lowercases the domain (and therefore the WSGI filename), but the home
+# directory keeps the username's registered case (e.g. /home/Vah1010). So the
+# domain/WSGI paths must be lowercased while project/venv paths must NOT — a
+# bare $PaUsername in the WSGI path uploads the shim to a file PA never loads,
+# leaving the default "Hello World" page serving and /api/health 404ing.
+$DomainUser          = $PaUsername.ToLowerInvariant()
 $PaApi               = "https://www.pythonanywhere.com/api/v0/user/$PaUsername"
-$Domain              = "$PaUsername.pythonanywhere.com"
+$Domain              = "$DomainUser.pythonanywhere.com"
 $ProjectDir          = "/home/$PaUsername/$RepoName"
 $VenvDir             = "/home/$PaUsername/.virtualenvs/telegram-bot"
-$WsgiFile            = "/var/www/${PaUsername}_pythonanywhere_com_wsgi.py"
+$WsgiFile            = "/var/www/${DomainUser}_pythonanywhere_com_wsgi.py"
 $WebhookUrlResolved  = "https://$Domain/api/webhook"
 $PythonVersion       = 'python313'
 
@@ -134,13 +140,33 @@ function Invoke-Pa {
     if (-not $NoAuth) { $headers['Authorization'] = "Token $PaToken" }
     $p = @{
         Uri = $uri; Method = $Method; Headers = $headers; TimeoutSec = $TimeoutSec
-        SkipHttpErrorCheck = $true; StatusCodeVariable = 'code'
+        SkipHttpErrorCheck = $true
     }
     if ($Form)              { $p.Form = $Body }
-    elseif ($null -ne $Body) { $p.Body = $Body }
+    elseif ($null -ne $Body) {
+        # URL-encode a dictionary body ourselves and set the Content-Type
+        # explicitly. Invoke-WebRequest only auto-encodes + sets the form
+        # Content-Type for POST; on PATCH it sends the body with no
+        # Content-Type, which PA rejects with HTTP 415. Encoding here makes
+        # it method-independent.
+        if ($Body -is [System.Collections.IDictionary]) {
+            $pairs = foreach ($k in $Body.Keys) {
+                '{0}={1}' -f [uri]::EscapeDataString([string]$k), [uri]::EscapeDataString([string]$Body[$k])
+            }
+            $p.Body = ($pairs -join '&')
+        } else {
+            $p.Body = $Body
+        }
+        $p.ContentType = 'application/x-www-form-urlencoded'
+    }
     try {
+        # Read the status from the response object rather than the
+        # -StatusCodeVariable parameter: that parameter does not exist on
+        # Invoke-WebRequest (even in pwsh 7.6), so passing it made every
+        # call throw and report a false "token rejected". -SkipHttpErrorCheck
+        # populates .StatusCode for 2xx/4xx/5xx alike.
         $resp = Invoke-WebRequest @p
-        return [pscustomobject]@{ Code = [int]$code; Body = [string]$resp.Content }
+        return [pscustomobject]@{ Code = [int]$resp.StatusCode; Body = [string]$resp.Content }
     } catch {
         # Network-level failure (DNS, TLS, timeout) — no HTTP status.
         return [pscustomobject]@{ Code = 0; Body = [string]$_.Exception.Message }
@@ -272,7 +298,13 @@ Emit 'TELEGRAM_BOT_TOKEN' (Get-Cfg 'TELEGRAM_BOT_TOKEN')
 Emit 'AI_API_KEY'         (Get-Cfg 'AI_API_KEY')
 Emit 'AI_BASE_URL'        (Get-Cfg 'AI_BASE_URL' 'https://api.cerebras.ai/v1')
 Emit 'AI_MODEL'           (Get-Cfg 'AI_MODEL' 'gpt-oss-120b')
-Emit 'SQLITE_PATH'        (Get-Cfg 'SQLITE_PATH' "/home/$PaUsername/bot.db")
+# SQLITE_PATH must be ABSOLUTE on PA: the WSGI worker's cwd is not the project
+# dir, so a relative path (e.g. the local-dev default "./bot.db") would put the
+# DB somewhere unwritable/unexpected and silently disable persistence. Fall back
+# to /home/<user>/bot.db whenever the configured value is unset or not absolute.
+$sqlitePath = (Get-Cfg 'SQLITE_PATH' '').Trim()
+if (-not $sqlitePath -or -not $sqlitePath.StartsWith('/')) { $sqlitePath = "/home/$PaUsername/bot.db" }
+Emit 'SQLITE_PATH'        $sqlitePath
 Emit 'WEBHOOK_URL'        (Get-Cfg 'WEBHOOK_URL' $WebhookUrlResolved)
 Emit 'HOSTING_LABEL'      (Get-Cfg 'HOSTING_LABEL' 'PythonAnywhere')
 Emit 'RATE_LIMIT'         (Get-Cfg 'RATE_LIMIT' '250')
