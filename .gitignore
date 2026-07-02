@@ -7,3 +7,8 @@ __pycache__/
 .deploy.lock
 .webhook_secret
 .vercel/
+
+# Runtime SQLite DB (created at run time; never commit)
+bot.db
+bot.db-shm
+bot.db-wal
