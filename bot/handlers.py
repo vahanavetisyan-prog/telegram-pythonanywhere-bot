@@ -118,7 +118,8 @@ def cmd_roll(message):
 
 @bot.message_handler(commands=["roast"], func=is_allowed)
 def cmd_roast(message):
- name = message.text.split(maxsplit=1)[1] if " " in message.text else "you"
+ parts = message.text.split(maxsplit=1)
+ name = parts[1] if len(parts) > 1 else "you"
  reply = ask_ai(message.from_user.id, f"Write a short, playful, friendly roast of {name}.")
  bot.send_message(message.chat.id, reply)
 
@@ -155,7 +156,8 @@ def cmd_reset(message):
 
 @bot.message_handler(commands=["remember"], func=is_allowed)
 def cmd_remember(message):
- note = message.text.split(maxsplit=1)[1] if " " in message.text else ""
+ parts = message.text.split(maxsplit=1)
+ note = parts[1] if len(parts) > 1 else ""
  notes = _load_notes(message.from_user.id)
  notes.append(note)
  store.set(f"note:{message.from_user.id}", json.dumps(notes))
@@ -178,7 +180,8 @@ def cmd_forget(message):
  if not notes:
   bot.send_message(message.chat.id, "You have no saved notes to forget.")
   return
- arg = message.text.split(maxsplit=1)[1].strip() if " " in message.text else ""
+ parts = message.text.split(maxsplit=1)
+ arg = parts[1].strip() if len(parts) > 1 else ""
  if arg:
   if not arg.isdigit() or not (1 <= int(arg) <= len(notes)):
    bot.send_message(

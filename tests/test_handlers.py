@@ -287,6 +287,88 @@ def test_cmd_model_not_registered_without_hf_space_id():
     assert not hasattr(bot.handlers, "cmd_model")
 
 
+# ── /remember, /recall, /forget (notes) ────────────────────────────────────────
+
+
+class _FakeStore:
+    """Minimal in-memory stand-in for SqliteStore (get/set/delete)."""
+
+    def __init__(self):
+        self.kv = {}
+
+    def get(self, k):
+        return self.kv.get(k)
+
+    def set(self, k, v):
+        self.kv[k] = v
+
+    def delete(self, k):
+        self.kv.pop(k, None)
+
+
+def test_cmd_remember_and_recall_roundtrip():
+    store = _FakeStore()
+    with patch("bot.handlers.store", store), patch("bot.handlers.bot") as mock_bot:
+        from bot.handlers import cmd_recall, cmd_remember
+
+        cmd_remember(make_message(text="/remember buy milk"))
+        cmd_remember(make_message(text="/remember call mom"))
+        cmd_recall(make_message(text="/recall"))
+        sent = mock_bot.send_message.call_args[0][1]
+        assert "1. buy milk" in sent
+        assert "2. call mom" in sent
+
+
+def test_cmd_forget_by_index_removes_right_note():
+    store = _FakeStore()
+    with patch("bot.handlers.store", store), patch("bot.handlers.bot") as mock_bot:
+        from bot.handlers import cmd_forget, cmd_recall, cmd_remember
+
+        for t in ("/remember a", "/remember b", "/remember c"):
+            cmd_remember(make_message(text=t))
+        cmd_forget(make_message(text="/forget 2"))
+        assert "Forgot note: b" in mock_bot.send_message.call_args[0][1]
+
+        cmd_recall(make_message(text="/recall"))
+        sent = mock_bot.send_message.call_args[0][1]
+        assert "1. a" in sent and "2. c" in sent and "b" not in sent
+
+
+def test_cmd_forget_trailing_space_clears_all_without_crashing():
+    """Regression: Telegram's command autocomplete appends a trailing space,
+    so '/forget ' arrives with a space but no argument. The old
+    `split(maxsplit=1)[1] if " " in text` pattern raised IndexError -> HTTP 500
+    and the bot went silent. It must instead clear all notes."""
+    store = _FakeStore()
+    with patch("bot.handlers.store", store), patch("bot.handlers.bot") as mock_bot:
+        from bot.handlers import cmd_forget, cmd_remember
+
+        cmd_remember(make_message(text="/remember keep me"))
+        cmd_forget(make_message(text="/forget "))  # trailing space, no index
+        assert "Forgot all your notes." in mock_bot.send_message.call_args[0][1]
+        assert store.get("note:123") is None
+
+
+def test_cmd_remember_trailing_space_does_not_crash():
+    """'/remember ' (autocomplete trailing space) must not raise IndexError."""
+    store = _FakeStore()
+    with patch("bot.handlers.store", store), patch("bot.handlers.bot") as mock_bot:
+        from bot.handlers import cmd_remember
+
+        cmd_remember(make_message(text="/remember "))
+        assert mock_bot.send_message.called
+
+
+def test_cmd_forget_bad_index_reports_range():
+    store = _FakeStore()
+    with patch("bot.handlers.store", store), patch("bot.handlers.bot") as mock_bot:
+        from bot.handlers import cmd_forget, cmd_remember
+
+        cmd_remember(make_message(text="/remember only one"))
+        cmd_forget(make_message(text="/forget 9"))
+        assert "between 1 and 1" in mock_bot.send_message.call_args[0][1]
+
+
 def test_handle_message_uses_keep_typing():
     """handle_message should wrap ask_ai in the keep_typing context."""
     with (
