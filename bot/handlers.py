@@ -139,10 +139,10 @@ def cmd_help(message):
         "/fact — learn a surprising fact",
         "/compliment — get a compliment to brighten your day",
         "/roll — roll a six-sided dice",
-        "/roast — get a playful roast for yourself or a friend ",
+        "/roast <name> — get a playful roast for yourself or a friend ",
         "/remember <text> — add a note (not replace!)",
         "/recall — show your saved notes",
-        "/forget [n] — delete note number n, or all notes if omitted",
+        "/forget n — delete note number n, or all notes if omitted",
     ]
     if HF_SPACE_ID:
         lines.append("/model — switch AI provider")
