@@ -48,6 +48,30 @@ def _log(message, direction: str, text: str) -> None:
     print(f"[{ts}] {sender} → {receiver}: {snippet}", flush=True)
 
 
+def _load_notes(user_id):
+    """Return the user's saved notes as a list of strings.
+
+    Reads the JSON-encoded list stored under ``note:{user_id}``. Returns
+    an empty list in stateless mode (``store is None``), when no notes
+    exist yet, or if the stored value is missing/corrupt — so callers can
+    always ``.append()`` safely.
+    """
+    if store is None:
+        return []
+    try:
+        raw = store.get(f"note:{user_id}")
+    except Exception as e:
+        print(f"Error loading notes: {e}")
+        return []
+    if not raw:
+        return []
+    try:
+        notes = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    return notes if isinstance(notes, list) else []
+
+
 @bot.message_handler(commands=["start"], func=is_allowed)
 def cmd_start(message):
     bot.send_message(
@@ -116,7 +140,8 @@ def cmd_help(message):
         "/roll — roll a six-sided dice",
         "/roast — get a playful roast for yourself or a friend ",
         "remember <text> — add a note (not replace!)",
-        "recall — show your saved note",
+        "recall — show your saved notes",
+        "forget [n] — delete note number n, or all notes if omitted",
     ]
     if HF_SPACE_ID:
         lines.append("/model — switch AI provider")
@@ -139,7 +164,36 @@ def cmd_remember(message):
 @bot.message_handler(commands=["recall"], func=is_allowed)
 def cmd_recall(message):
  notes = _load_notes(message.from_user.id)
- bot.send_message(message.chat.id, note if note else "You have no saved notes yet.")
+ if notes:
+  reply = "\n".join(f"{i}. {n}" for i, n in enumerate(notes, 1))
+ else:
+  reply = "You have no saved notes yet."
+ bot.send_message(message.chat.id, reply)
+
+@bot.message_handler(commands=["forget"], func=is_allowed)
+def cmd_forget(message):
+ # forget         -> delete all notes
+ # forget <n>     -> delete just note number n (as shown by /recall)
+ notes = _load_notes(message.from_user.id)
+ if not notes:
+  bot.send_message(message.chat.id, "You have no saved notes to forget.")
+  return
+ arg = message.text.split(maxsplit=1)[1].strip() if " " in message.text else ""
+ if arg:
+  if not arg.isdigit() or not (1 <= int(arg) <= len(notes)):
+   bot.send_message(
+    message.chat.id,
+    f"Please give a note number between 1 and {len(notes)} (see /recall), or use /forget to clear all.",
+   )
+   return
+  removed = notes.pop(int(arg) - 1)
+  if store is not None:
+   store.set(f"note:{message.from_user.id}", json.dumps(notes))
+  bot.send_message(message.chat.id, f"Forgot note: {removed}")
+ else:
+  if store is not None:
+   store.delete(f"note:{message.from_user.id}")
+  bot.send_message(message.chat.id, "Forgot all your notes.")
 
 
 @bot.message_handler(commands=["about"], func=is_allowed)
