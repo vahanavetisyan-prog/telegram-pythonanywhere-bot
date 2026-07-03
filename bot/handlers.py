@@ -88,10 +88,11 @@ def cmd_joke(message):
 def cmd_quote(message):
     reply = ask_ai(
         message.from_user.id,
-        "Share one original, uplifting motivational line you have written yourself. "
-        "Keep it to a single short sentence and do not attribute it to anyone famous.",
+        "Share one original, uplifting motivational line...",
+        mode="creative" # This tells the AI to drop the "coding-only" restriction
     )
     bot.send_message(message.chat.id, reply)
+
 
 @bot.message_handler(commands=["fact"], func=is_allowed)
 def cmd_fact(message):
