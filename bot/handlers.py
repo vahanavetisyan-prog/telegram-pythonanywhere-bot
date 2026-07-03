@@ -133,6 +133,7 @@ def cmd_help(message):
         "/start — start the bot and see a welcome message",
         "/help — show this list of commands",
         "/about — learn more about me",
+        "/sha — show the live git commit SHA",
         "/reset — clear our conversation and start fresh",
         "/joke — hear a short programming joke",
         "/quote — get an original motivational line",
@@ -253,6 +254,12 @@ def cmd_about(message):
     if COMMIT_SHA:
         lines.append(f"Version: {COMMIT_SHA}")
     bot.send_message(message.chat.id, "\n".join(lines))
+
+
+@bot.message_handler(commands=["sha"], func=is_allowed)
+def cmd_sha(message):
+    sha = COMMIT_SHA or "unknown"
+    bot.send_message(message.chat.id, f"Live SHA: {sha}")
 
 
 if HF_SPACE_ID:
