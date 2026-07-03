@@ -76,7 +76,7 @@ def _load_notes(user_id):
 def cmd_start(message):
     bot.send_message(
         message.chat.id,
-        "Բարև! Ես Telegram բոտ եմ, որը կարող է պատասխանել ձեր հարցերին և օգնել ձեզ տարբեր թեմաներով՝ Պատմություն,Մաթեմատիկա,Ֆուտբոլ,Ծրագրավորում և այլն   : ",
+        "Hi! I'm your friendly AI assistant bot. I can help you with programming and questions, tell jokes, share motivational quotes, and more. Type /help to see what I can do!",
     )
 
 @bot.message_handler(commands=["joke"], func=is_allowed)
