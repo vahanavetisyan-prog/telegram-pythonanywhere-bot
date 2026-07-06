@@ -121,14 +121,14 @@ def cmd_roll(message):
 def cmd_roast(message):
  parts = message.text.split(maxsplit=1)
  name = parts[1] if len(parts) > 1 else "you"
- reply = ask_ai(message.from_user.id, f"Write a short, playful, friendly roast of {name}.", system_prompt=None)
+ reply = ask_ai(message.from_user.id, f"Write a short, playful, friendly roast of {name}.",)
  bot.send_message(message.chat.id, reply)
 
 
 @bot.message_handler(commands=["help"], func=is_allowed)
 def cmd_help(message):
     lines = [
-        ask_ai(message.from_user.id, "Introduce yourself in two sentences and tell me how you can help me. ", system_prompt=None),
+        ask_ai(message.from_user.id, "Introduce yourself in two sentences and tell me how you can help me. ",),
         "",
         "Commands:",
         "/start — start the bot and see a welcome message",
@@ -274,7 +274,7 @@ if HF_SPACE_ID:
                 message.chat.id,
                 f"Current provider: {current}\n\n"
                 "Options:\n"
-                "/model main —  (fast, multilingual, with memory)\n"
+                "/model main — (fast, multilingual, with memory)\n"
                 "/model hf — ArmGPT (Armenian only, slow, no memory)",
             )
             return
