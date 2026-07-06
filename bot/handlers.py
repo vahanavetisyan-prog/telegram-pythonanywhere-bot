@@ -107,6 +107,7 @@ def cmd_compliment(message):
         message.from_user.id,
         "Give me one warm, genuine compliment to brighten my day. "
         "Keep it to a single short, uplifting sentence.",
+        system_prompt=None,  # trusted command — skip the programming-only filter
     )
     bot.send_message(message.chat.id, reply)
 
@@ -120,14 +121,14 @@ def cmd_roll(message):
 def cmd_roast(message):
  parts = message.text.split(maxsplit=1)
  name = parts[1] if len(parts) > 1 else "you"
- reply = ask_ai(message.from_user.id, f"Write a short, playful, friendly roast of {name}.")
+ reply = ask_ai(message.from_user.id, f"Write a short, playful, friendly roast of {name}.", system_prompt=None)
  bot.send_message(message.chat.id, reply)
 
 
 @bot.message_handler(commands=["help"], func=is_allowed)
 def cmd_help(message):
     lines = [
-        ask_ai(message.from_user.id, "Introduce yourself in two sentences and tell me how you can help me. "),
+        ask_ai(message.from_user.id, "Introduce yourself in two sentences and tell me how you can help me. ", system_prompt=None),
         "",
         "Commands:",
         "/start — start the bot and see a welcome message",
