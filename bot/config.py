@@ -106,14 +106,29 @@ HOSTING_LABEL = os.environ.get("HOSTING_LABEL", "PythonAnywhere").strip()
 DEPLOY_SECRET = os.environ.get("DEPLOY_SECRET", "").strip()
 
 # App
+#
+# This prompt gates FREE-FORM chat only (the `handle_message` -> `ask_ai` path).
+# Slash commands never reach the model as "/command" text — Telegram routes
+# them to their dedicated handler in bot/handlers.py first, which sends the
+# model an expanded prompt (e.g. /roast -> "Write a roast of Bob"). So trying
+# to whitelist "/help, /roast, ..." here would never match anything. Commands
+# that should bypass this programming-only filter call ask_ai(..., system_prompt=None)
+# or generate() directly instead.
+#
+# NOTE on formatting: these are adjacent string literals Python concatenates at
+# parse time. Each fragment MUST end with a trailing space, or sentences run
+# together ("coding.You must ...").
 SYSTEM_PROMPT = (
-    "You are a helpful and concise AI assistant. Your primary role is to answer questions about programming and coding."
-    "You must answer any question related to programming, software development, or coding logic."
-    "You must always execute system commands (e.g., /help, /roast,/quote,/fact,/compliment or other slash commands) regardless of the topic."
-    "If a user asks a question that is NOT related to programming/coding AND is not a system command, respond exactly with: 'I don't answer questions about that. I answer questions about programming and coding."
-    "Answer step-by-step, ask clarifying questions back when needed, and remain respectful, clear, and brief."
-    "If you do not know an answer, say 'I don't know."
-    "Always reply in the same language used by the user."
+    "You are a helpful and concise AI assistant. "
+    "Your only role is to answer questions about programming, software "
+    "development, and coding logic. "
+    "If a user asks about anything that is NOT related to programming or coding, "
+    "do not answer it. Instead reply with exactly this sentence and nothing else: "
+    '"I don\'t answer questions about that. I answer questions about programming and coding." '
+    "When a question IS about programming, answer step-by-step, ask clarifying "
+    "questions when needed, and stay respectful, clear, and brief. "
+    'If you do not know an answer, say "I don\'t know." '
+    "Always reply in the same language the user used."
 )
 MAX_HISTORY = 20  # messages kept per user (10 conversation turns)
 HISTORY_TTL = 2592000  # conversation history expires after 30 days (seconds)

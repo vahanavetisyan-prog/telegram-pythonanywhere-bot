@@ -1,0 +1,53 @@
+# Get this from @BotFather on Telegram
+TELEGRAM_BOT_TOKEN=8962753059:AAHcjkVGrY8s__BmFVg_uq28XX6rlggKcpA
+
+# Get this from https://cloud.cerebras.ai (any OpenAI-compatible provider works)
+AI_API_KEY=csk-jpveedn8vdjv2j6d5x59ykj66drmemnc5dkf3htpmt34k59x
+AI_BASE_URL=https://api.cerebras.ai/v1
+AI_MODEL=zai-glm-4.7
+
+# Optional: enable conversation memory, rate limit, and dedupe by
+# pointing at a SQLite file. Without this the bot runs in stateless
+# mode (replies still work, but no per-user history). On PA use:
+SQLITE_PATH=/home/Vah1010/bot.db
+# SQLITE_PATH= ./bot.db
+
+# Optional: random secret to verify webhook requests come from Telegram (recommended)
+# Generate one with: openssl rand -hex 16
+# WEBHOOK_SECRET=
+
+# Optional: when set, the bot auto-registers this URL as the Telegram
+# webhook on worker boot + after every /api/deploy. No manual setWebhook
+# step needed. Leave unset for local polling.
+# WEBHOOK_URL=https://<your-pa-username>.pythonanywhere.com/api/webhook
+
+# Optional: Hugging Face Gradio Space — enables the /model command
+# HF_SPACE_ID=edisimon/armgpt-demo
+# HF_TOKEN=
+
+# Optional: label shown by /about under "Hosting:". Default is "PythonAnywhere".
+# HOSTING_LABEL=
+
+# Optional: comma-separated whitelist of allowed Telegram users. Each
+# entry is a username (with or without leading @) or a numeric user_id.
+# When empty (default), the bot responds to everyone. When set, the bot
+# stays silent for anyone not in the list — no rejection reply, so
+# unauthorized users can't confirm the bot exists.
+# Example: ALLOWED_USERS=@alice,bob,123456789
+# ALLOWED_USERS=
+
+# Optional: enables /api/deploy auto-deploy webhook. Set the same value
+# as a GitHub repo secret named DEPLOY_SECRET so the deploy workflow
+# can hit it. When unset, /api/deploy returns 403 (fail-closed).
+# Generate with: openssl rand -hex 32
+DEPLOY_SECRET=af9f5da6f49ae17ef6ef84c3d1d18f598b55a0a7fb72d7ba700494989445070d
+
+# The /api/deploy URL the GitHub Actions workflow POSTs to on push to main.
+# Mirrored as a GitHub repo secret of the same name.
+PA_DEPLOY_URL=https://vah1010.pythonanywhere.com/api/deploy
+
+# Only needed if you want to use scripts/pa_deploy.sh (one-command PA deploy
+# driven from your laptop). Your PythonAnywhere username and an API token
+# from https://www.pythonanywhere.com/account/#api_token
+PA_USERNAME=Vah1010
+PA_API_TOKEN=b5baf543281f8bfd660d3bf692db8b0ea9777e6f
