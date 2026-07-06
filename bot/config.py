@@ -89,6 +89,18 @@ HF_SPACE_ID = os.environ.get("HF_SPACE_ID", "").strip()
 HF_TOKEN = os.environ.get("HF_TOKEN", "").strip()  # optional, for private spaces
 DEFAULT_PROVIDER = "main"
 
+# Image generation (optional) — powers the /createimage command. Uses the
+# Hugging Face Inference API (the huggingface.co family is on PA's free-tier
+# outbound whitelist). Requires HF_TOKEN — HF's hosted inference rejects
+# anonymous calls. IMAGE_MODEL can be any HF text-to-image model id.
+IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "black-forest-labs/FLUX.1-schnell").strip()
+IMAGE_API_BASE = os.environ.get(
+    "IMAGE_API_BASE", "https://router.huggingface.co/hf-inference/models"
+).strip()
+# Wall-clock cap on the image call. Text-to-image is slow (cold starts +
+# diffusion steps); keep it under Telegram's ~60s webhook window.
+IMAGE_REQUEST_TIMEOUT = int(os.environ.get("IMAGE_REQUEST_TIMEOUT", "55"))
+
 # Storage — optional. When SQLITE_PATH is unset the bot runs in
 # stateless mode: history / rate limiting / preferences / dedupe all
 # degrade gracefully (the consumer modules in bot/ check `store is
