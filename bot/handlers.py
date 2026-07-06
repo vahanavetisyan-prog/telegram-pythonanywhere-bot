@@ -81,14 +81,14 @@ def cmd_start(message):
 
 @bot.message_handler(commands=["joke"], func=is_allowed)
 def cmd_joke(message):
- reply = generate(message.from_user.id, "Tell one short, clean programming joke.")
+ reply = generate(message.from_user.id, [{"role": "user", "content": "Tell one short, clean programming joke."}])
  bot.send_message(message.chat.id, reply)
 
 @bot.message_handler(commands=["quote"], func=is_allowed)
 def cmd_quote(message):
     reply = generate(
         message.from_user.id,
-        "Share one original, uplifting motivational line...",
+        [{"role": "user", "content": "Share one original, uplifting motivational line."}],
     )
     bot.send_message(message.chat.id, reply)
 
@@ -97,7 +97,7 @@ def cmd_quote(message):
 def cmd_fact(message):
     reply = generate(
         message.from_user.id,
-        "Tell me one surprising, true fact in a single short sentence.",
+        [{"role": "user", "content": "Tell me one surprising, true fact in a single short sentence."}],
     )
     bot.send_message(message.chat.id, reply)
 
