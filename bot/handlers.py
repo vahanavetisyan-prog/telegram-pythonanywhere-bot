@@ -274,7 +274,7 @@ if HF_SPACE_ID:
                 message.chat.id,
                 f"Current provider: {current}\n\n"
                 "Options:\n"
-                "/model main — Cerebras (fast, multilingual, with memory)\n"
+                "/model main —  (fast, multilingual, with memory)\n"
                 "/model hf — ArmGPT (Armenian only, slow, no memory)",
             )
             return
