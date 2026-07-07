@@ -121,7 +121,11 @@ def cmd_roll(message):
 def cmd_roast(message):
  parts = message.text.split(maxsplit=1)
  name = parts[1] if len(parts) > 1 else "you"
- reply = ask_ai(message.from_user.id, f"Write a short, playful, friendly roast of {name}.",)
+ reply = ask_ai(
+     message.from_user.id,
+     f"Write a short, playful, friendly roast of {name}.",
+     system_prompt=None,  # trusted command — skip the programming-only filter
+ )
  bot.send_message(message.chat.id, reply)
 
 
