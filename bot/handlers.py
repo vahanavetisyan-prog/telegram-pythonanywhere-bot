@@ -123,7 +123,10 @@ def cmd_roast(message):
  name = parts[1] if len(parts) > 1 else "you"
  reply = ask_ai(
      message.from_user.id,
-     f"Write a short, playful, friendly roast of {name}.",
+     f"Write a short, playful, friendly roast of {name}. "
+     "You don't know this person — that's fine. Do NOT ask for details or say "
+     "you don't know them. Just invent a lighthearted, generic roast and deliver "
+     "it directly in one or two sentences.",
      system_prompt=None,  # trusted command — skip the programming-only filter
  )
  bot.send_message(message.chat.id, reply)
