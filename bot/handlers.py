@@ -107,7 +107,7 @@ def cmd_compliment(message):
         message.from_user.id,
         "Give me one warm, genuine compliment to brighten my day. "
         "Keep it to a single short, uplifting sentence.",
-          # trusted command — skip the programming-only filter
+        system_prompt=None,  # trusted command — skip the programming-only filter
     )
     bot.send_message(message.chat.id, reply)
 
