@@ -178,3 +178,58 @@ def test_generate_dispatches_to_hf():
         assert generate(123, [{"role": "user", "content": "hi"}]) == "hf reply"
         mock_hf.assert_called_once()
         mock_main.assert_not_called()
+
+
+# ── generate_image ──────────────────────────────────────────────────────────
+
+
+def test_generate_image_returns_bytes_on_success():
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {"content-type": "image/png"}
+    mock_resp.content = b"\x89PNG-bytes"
+    with (
+        patch("bot.providers.HF_TOKEN", "tok"),
+        patch("bot.providers.IMAGE_API_BASE", "https://router.example/models"),
+        patch("bot.providers.IMAGE_MODEL", "some/model"),
+        patch("bot.providers.requests.post", return_value=mock_resp) as mock_post,
+    ):
+        from bot.providers import generate_image
+
+        assert generate_image("a red apple") == b"\x89PNG-bytes"
+        # URL is joined without a double slash, and the prompt is sent as inputs
+        args, kwargs = mock_post.call_args
+        assert args[0] == "https://router.example/models/some/model"
+        assert kwargs["json"] == {"inputs": "a red apple"}
+        assert kwargs["headers"]["Authorization"] == "Bearer tok"
+
+
+def test_generate_image_raises_without_token():
+    with patch("bot.providers.HF_TOKEN", ""):
+        from bot.providers import generate_image
+
+        try:
+            generate_image("anything")
+            assert False, "Should have raised"
+        except RuntimeError as e:
+            assert "not configured" in str(e)
+
+
+def test_generate_image_surfaces_hf_error_message():
+    """A non-image JSON response (e.g. model still loading) becomes a
+    RuntimeError carrying the provider's message."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 503
+    mock_resp.headers = {"content-type": "application/json"}
+    mock_resp.json.return_value = {"error": "Model is currently loading"}
+    with (
+        patch("bot.providers.HF_TOKEN", "tok"),
+        patch("bot.providers.requests.post", return_value=mock_resp),
+    ):
+        from bot.providers import generate_image
+
+        try:
+            generate_image("a cat")
+            assert False, "Should have raised"
+        except RuntimeError as e:
+            assert "currently loading" in str(e)

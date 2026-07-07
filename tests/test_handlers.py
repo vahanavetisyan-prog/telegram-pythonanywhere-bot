@@ -394,6 +394,136 @@ def test_cmd_forget_bad_index_reports_range():
         assert "between 1 and 1" in mock_bot.send_message.call_args[0][1]
 
 
+# ── /translate, /define, /summarize, /explain (AI text commands) ───────────────
+
+
+def test_cmd_translate_passes_no_system_prompt():
+    with (
+        patch("bot.handlers.ask_ai", return_value="hello world") as mock_ask,
+        patch("bot.handlers.send_reply") as mock_send,
+    ):
+        from bot.handlers import cmd_translate
+
+        msg = make_message(text="/translate bonjour le monde")
+        cmd_translate(msg)
+        # trusted command must bypass the programming-only filter
+        assert mock_ask.call_args.kwargs.get("system_prompt", "MISSING") is None
+        assert "bonjour le monde" in mock_ask.call_args[0][1]
+        mock_send.assert_called_once_with(msg, "hello world")
+
+
+def test_cmd_translate_no_arg_shows_usage():
+    with (
+        patch("bot.handlers.ask_ai") as mock_ask,
+        patch("bot.handlers.bot") as mock_bot,
+    ):
+        from bot.handlers import cmd_translate
+
+        cmd_translate(make_message(text="/translate"))
+        mock_ask.assert_not_called()
+        assert "Usage" in mock_bot.send_message.call_args[0][1]
+
+
+def test_cmd_define_no_arg_shows_usage():
+    with (
+        patch("bot.handlers.ask_ai") as mock_ask,
+        patch("bot.handlers.bot") as mock_bot,
+    ):
+        from bot.handlers import cmd_define
+
+        cmd_define(make_message(text="/define "))  # trailing space, no word
+        mock_ask.assert_not_called()
+        assert "Usage" in mock_bot.send_message.call_args[0][1]
+
+
+def test_cmd_define_bypasses_filter():
+    with (
+        patch("bot.handlers.ask_ai", return_value="a definition") as mock_ask,
+        patch("bot.handlers.send_reply") as mock_send,
+    ):
+        from bot.handlers import cmd_define
+
+        msg = make_message(text="/define recursion")
+        cmd_define(msg)
+        assert mock_ask.call_args.kwargs.get("system_prompt", "MISSING") is None
+        assert "recursion" in mock_ask.call_args[0][1]
+        mock_send.assert_called_once_with(msg, "a definition")
+
+
+def test_cmd_summarize_bypasses_filter():
+    with (
+        patch("bot.handlers.ask_ai", return_value="short summary") as mock_ask,
+        patch("bot.handlers.send_reply"),
+    ):
+        from bot.handlers import cmd_summarize
+
+        cmd_summarize(make_message(text="/summarize a long wall of text here"))
+        assert mock_ask.call_args.kwargs.get("system_prompt", "MISSING") is None
+        assert "a long wall of text here" in mock_ask.call_args[0][1]
+
+
+def test_cmd_explain_bypasses_filter():
+    with (
+        patch("bot.handlers.ask_ai", return_value="simple explanation") as mock_ask,
+        patch("bot.handlers.send_reply"),
+    ):
+        from bot.handlers import cmd_explain
+
+        cmd_explain(make_message(text="/explain how wifi works"))
+        assert mock_ask.call_args.kwargs.get("system_prompt", "MISSING") is None
+        assert "how wifi works" in mock_ask.call_args[0][1]
+
+
+# ── /createimage ───────────────────────────────────────────────────────────────
+
+
+def test_cmd_createimage_sends_photo_on_success():
+    with (
+        patch("bot.handlers.generate_image", return_value=b"img-bytes") as mock_gen,
+        patch("bot.handlers.bot") as mock_bot,
+    ):
+        from bot.handlers import cmd_createimage
+
+        cmd_createimage(make_message(text="/createimage a blue cat"))
+        mock_gen.assert_called_once_with("a blue cat")
+        mock_bot.send_photo.assert_called_once()
+        args, kwargs = mock_bot.send_photo.call_args
+        assert args[0] == 456  # chat id
+        assert args[1] == b"img-bytes"
+        assert kwargs["caption"] == "a blue cat"
+
+
+def test_cmd_createimage_no_arg_shows_usage():
+    with (
+        patch("bot.handlers.generate_image") as mock_gen,
+        patch("bot.handlers.bot") as mock_bot,
+    ):
+        from bot.handlers import cmd_createimage
+
+        cmd_createimage(make_message(text="/createimage"))
+        mock_gen.assert_not_called()
+        mock_bot.send_photo.assert_not_called()
+        assert "Usage" in mock_bot.send_message.call_args[0][1]
+
+
+def test_cmd_createimage_reports_clean_error_on_failure():
+    """A backend failure must not leak the raw reason to the user."""
+    with (
+        patch(
+            "bot.handlers.generate_image",
+            side_effect=RuntimeError("HF_TOKEN is unset"),
+        ),
+        patch("bot.handlers.bot") as mock_bot,
+    ):
+        from bot.handlers import cmd_createimage
+
+        cmd_createimage(make_message(text="/createimage a dog"))
+        mock_bot.send_photo.assert_not_called()
+        sent = mock_bot.send_message.call_args[0][1]
+        assert "couldn't create that image" in sent
+        assert "HF_TOKEN" not in sent
+
+
 def test_handle_message_uses_keep_typing():
     """handle_message should wrap ask_ai in the keep_typing context."""
     with (

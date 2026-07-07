@@ -1,5 +1,8 @@
 import re
 import time
+
+import requests
+
 from bot.clients import ai
 from bot.config import (
     AI_REQUEST_TIMEOUT,
@@ -7,6 +10,9 @@ from bot.config import (
     HF_REQUEST_TIMEOUT,
     HF_SPACE_ID,
     HF_TOKEN,
+    IMAGE_API_BASE,
+    IMAGE_MODEL,
+    IMAGE_REQUEST_TIMEOUT,
     MODEL,
 )
 from bot.preferences import get_provider
@@ -106,3 +112,44 @@ def generate(user_id: int, messages: list) -> str:
     if provider == "hf":
         return _call_hf(messages)
     return _call_main(messages)
+
+
+def generate_image(prompt: str) -> bytes:
+    """Generate an image from a text prompt via the Hugging Face Inference API.
+
+    POSTs ``{IMAGE_API_BASE}/{IMAGE_MODEL}`` and returns the raw image bytes
+    (PNG/JPEG) ready for Telegram's ``send_photo``. The huggingface.co family
+    is on PythonAnywhere's free-tier outbound whitelist; a text-to-image
+    Gradio space (``*.hf.space``) would hang there instead — see CLAUDE.md.
+
+    Raises ``RuntimeError`` with a short, user-safe message on any failure
+    (missing token, model still loading, timeout, non-image response) so the
+    handler can surface a clean apology instead of a stack trace.
+    """
+    if not HF_TOKEN:
+        raise RuntimeError("image generation is not configured (HF_TOKEN is unset)")
+
+    url = f"{IMAGE_API_BASE.rstrip('/')}/{IMAGE_MODEL}"
+    try:
+        resp = requests.post(
+            url,
+            headers={"Authorization": f"Bearer {HF_TOKEN}"},
+            json={"inputs": prompt},
+            timeout=IMAGE_REQUEST_TIMEOUT,
+        )
+    except requests.RequestException as e:
+        raise RuntimeError(f"image request failed: {e}") from e
+
+    content_type = resp.headers.get("content-type", "")
+    if resp.status_code == 200 and content_type.startswith("image/"):
+        return resp.content
+
+    # Non-image response: HF returns JSON like {"error": "Model ... is
+    # currently loading", "estimated_time": 20.0} or an auth error. Surface
+    # the message if present, otherwise the status code.
+    detail = ""
+    try:
+        detail = resp.json().get("error", "")
+    except ValueError:
+        detail = resp.text[:200]
+    raise RuntimeError(detail or f"image provider returned HTTP {resp.status_code}")

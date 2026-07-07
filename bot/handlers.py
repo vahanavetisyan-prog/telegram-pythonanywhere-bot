@@ -5,7 +5,7 @@ from datetime import datetime
 from bot.clients import bot, BOT_INFO, store
 from bot.config import COMMIT_SHA, HF_SPACE_ID, HOSTING_LABEL, MODEL, RATE_LIMIT
 from bot.ai import ask_ai
-from bot.providers import generate
+from bot.providers import generate, generate_image
 from bot.helpers import is_allowed, keep_typing, send_reply, should_respond
 from bot.history import clear_history
 from bot.preferences import get_provider, set_provider
@@ -132,6 +132,116 @@ def cmd_roast(message):
  bot.send_message(message.chat.id, reply)
 
 
+@bot.message_handler(commands=["translate"], func=is_allowed)
+def cmd_translate(message):
+    parts = message.text.split(maxsplit=1)
+    text = parts[1].strip() if len(parts) > 1 else ""
+    if not text:
+        bot.send_message(
+            message.chat.id,
+            "Usage: /translate <text>\nExample: /translate bonjour le monde",
+        )
+        return
+    reply = ask_ai(
+        message.from_user.id,
+        "Translate the following text into English. If it is already in English, "
+        "translate it into Spanish instead. Reply with ONLY the translation and no "
+        f"commentary.\n\n{text}",
+        system_prompt=None,  # trusted command — skip the programming-only filter
+    )
+    send_reply(message, reply)
+
+
+@bot.message_handler(commands=["define"], func=is_allowed)
+def cmd_define(message):
+    parts = message.text.split(maxsplit=1)
+    word = parts[1].strip() if len(parts) > 1 else ""
+    if not word:
+        bot.send_message(
+            message.chat.id,
+            "Usage: /define <word or term>\nExample: /define recursion",
+        )
+        return
+    reply = ask_ai(
+        message.from_user.id,
+        f"Define '{word}' in one or two clear, simple sentences a beginner can "
+        "understand. If it has a common example, add a very short one.",
+        system_prompt=None,  # trusted command — skip the programming-only filter
+    )
+    send_reply(message, reply)
+
+
+@bot.message_handler(commands=["summarize"], func=is_allowed)
+def cmd_summarize(message):
+    parts = message.text.split(maxsplit=1)
+    text = parts[1].strip() if len(parts) > 1 else ""
+    if not text:
+        bot.send_message(
+            message.chat.id,
+            "Usage: /summarize <text>\nPaste the text you want summarized after the command.",
+        )
+        return
+    reply = ask_ai(
+        message.from_user.id,
+        "Summarize the following text in 2-3 concise sentences, keeping the key "
+        f"points and dropping the filler.\n\n{text}",
+        system_prompt=None,  # trusted command — skip the programming-only filter
+    )
+    send_reply(message, reply)
+
+
+@bot.message_handler(commands=["explain"], func=is_allowed)
+def cmd_explain(message):
+    parts = message.text.split(maxsplit=1)
+    topic = parts[1].strip() if len(parts) > 1 else ""
+    if not topic:
+        bot.send_message(
+            message.chat.id,
+            "Usage: /explain <topic>\nExample: /explain how the internet works",
+        )
+        return
+    reply = ask_ai(
+        message.from_user.id,
+        f"Explain '{topic}' simply, as if to a curious 10-year-old, in one short "
+        "paragraph. Use plain language and a friendly tone.",
+        system_prompt=None,  # trusted command — skip the programming-only filter
+    )
+    send_reply(message, reply)
+
+
+@bot.message_handler(commands=["createimage"], func=is_allowed)
+def cmd_createimage(message):
+    parts = message.text.split(maxsplit=1)
+    prompt = parts[1].strip() if len(parts) > 1 else ""
+    if not prompt:
+        bot.send_message(
+            message.chat.id,
+            "Usage: /createimage <description>\n"
+            "Example: /createimage a cat astronaut floating over the moon",
+        )
+        return
+    # Image generation is slow (cold start + diffusion). Show the "uploading
+    # photo" indicator so the user knows something is happening.
+    try:
+        bot.send_chat_action(message.chat.id, "upload_photo")
+    except Exception:
+        pass  # cosmetic only — never block image generation on this
+    try:
+        image_bytes = generate_image(prompt)
+    except Exception as e:
+        # Log the real reason (missing token, model loading, timeout) but keep
+        # the user-facing message clean, matching handle_message's policy.
+        print(f"Image generation failed: {e}")
+        bot.send_message(
+            message.chat.id,
+            "Sorry, I couldn't create that image right now. Please try again in a moment.",
+        )
+        return
+    # Telegram caption limit is 1024 chars; trim the prompt so a long
+    # description never rejects the whole send.
+    bot.send_photo(message.chat.id, image_bytes, caption=prompt[:1024])
+
+
 @bot.message_handler(commands=["help"], func=is_allowed)
 def cmd_help(message):
     lines = [
@@ -149,6 +259,11 @@ def cmd_help(message):
         "/compliment — get a compliment to brighten your day",
         "/roll — roll a six-sided dice",
         "/roast <name> — get a playful roast for yourself or a friend ",
+        "/createimage <description> — generate an image from a description",
+        "/translate <text> — translate text (to English, or to Spanish if already English)",
+        "/define <word> — get a short, simple definition",
+        "/summarize <text> — summarize text in a few sentences",
+        "/explain <topic> — get a simple, ELI5-style explanation",
         "/remember <text> — add a note (not replace!)",
         "/recall — show your saved notes",
         "/forget n — delete note number n, or all notes if omitted",
