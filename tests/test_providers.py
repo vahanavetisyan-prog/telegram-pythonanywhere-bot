@@ -215,16 +215,44 @@ def test_generate_image_raises_without_token():
             assert "not configured" in str(e)
 
 
-def test_generate_image_surfaces_hf_error_message():
-    """A non-image JSON response (e.g. model still loading) becomes a
-    RuntimeError carrying the provider's message."""
-    mock_resp = MagicMock()
-    mock_resp.status_code = 503
-    mock_resp.headers = {"content-type": "application/json"}
-    mock_resp.json.return_value = {"error": "Model is currently loading"}
+def test_generate_image_retries_on_cold_model_then_succeeds():
+    """A 503 'model loading' is transient: wait and retry within the budget,
+    then return the image once the model is warm."""
+    loading = MagicMock()
+    loading.status_code = 503
+    loading.headers = {"content-type": "application/json"}
+    loading.json.return_value = {"error": "Model is currently loading"}
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.headers = {"content-type": "image/png"}
+    ok.content = b"warm-image"
+
     with (
         patch("bot.providers.HF_TOKEN", "tok"),
-        patch("bot.providers.requests.post", return_value=mock_resp),
+        patch("bot.providers.time.sleep") as mock_sleep,
+        patch(
+            "bot.providers.requests.post", side_effect=[loading, ok]
+        ) as mock_post,
+    ):
+        from bot.providers import generate_image
+
+        assert generate_image("a cat") == b"warm-image"
+        assert mock_post.call_count == 2
+        mock_sleep.assert_called()  # waited between the cold 503 and the retry
+
+
+def test_generate_image_raises_immediately_on_fatal_error():
+    """A non-retryable error (e.g. bad token → 401) fails fast with the
+    provider's message, without retrying."""
+    mock_resp = MagicMock()
+    mock_resp.status_code = 401
+    mock_resp.headers = {"content-type": "application/json"}
+    mock_resp.json.return_value = {"error": "Invalid credentials"}
+    with (
+        patch("bot.providers.HF_TOKEN", "tok"),
+        patch("bot.providers.time.sleep") as mock_sleep,
+        patch("bot.providers.requests.post", return_value=mock_resp) as mock_post,
     ):
         from bot.providers import generate_image
 
@@ -232,4 +260,6 @@ def test_generate_image_surfaces_hf_error_message():
             generate_image("a cat")
             assert False, "Should have raised"
         except RuntimeError as e:
-            assert "currently loading" in str(e)
+            assert "Invalid credentials" in str(e)
+        assert mock_post.call_count == 1
+        mock_sleep.assert_not_called()

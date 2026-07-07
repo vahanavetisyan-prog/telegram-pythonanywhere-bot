@@ -130,26 +130,50 @@ def generate_image(prompt: str) -> bytes:
         raise RuntimeError("image generation is not configured (HF_TOKEN is unset)")
 
     url = f"{IMAGE_API_BASE.rstrip('/')}/{IMAGE_MODEL}"
-    try:
-        resp = requests.post(
-            url,
-            headers={"Authorization": f"Bearer {HF_TOKEN}"},
-            json={"inputs": prompt},
-            timeout=IMAGE_REQUEST_TIMEOUT,
+    headers = {
+        "Authorization": f"Bearer {HF_TOKEN}",
+        # Ask HF to hold the request until the model is warm instead of
+        # returning an immediate 503 on a cold start. Honored by the
+        # Inference API; harmless where it isn't (we also retry 503 below).
+        "x-wait-for-model": "true",
+    }
+
+    # Text-to-image is slow and the model may be cold ("currently loading").
+    # Retry the transient 503 within a single wall-clock budget so the whole
+    # operation still finishes inside Telegram's ~60s webhook window.
+    deadline = time.monotonic() + IMAGE_REQUEST_TIMEOUT
+    last_detail = ""
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 1:
+            raise RuntimeError(last_detail or "image generation timed out")
+        try:
+            resp = requests.post(
+                url,
+                headers=headers,
+                json={"inputs": prompt},
+                timeout=min(IMAGE_REQUEST_TIMEOUT, remaining),
+            )
+        except requests.RequestException as e:
+            raise RuntimeError(f"image request failed: {e}") from e
+
+        content_type = resp.headers.get("content-type", "")
+        if resp.status_code == 200 and content_type.startswith("image/"):
+            return resp.content
+
+        # Non-image response: HF returns JSON like {"error": "Model ... is
+        # currently loading", "estimated_time": 20.0} or an auth error.
+        try:
+            last_detail = resp.json().get("error", "")
+        except ValueError:
+            last_detail = resp.text[:200]
+
+        # A cold model (503 / "loading") is transient — wait and retry while
+        # the time budget allows. Any other error is fatal.
+        loading = resp.status_code == 503 or "loading" in last_detail.lower()
+        if loading and (deadline - time.monotonic()) > 4:
+            time.sleep(3)
+            continue
+        raise RuntimeError(
+            last_detail or f"image provider returned HTTP {resp.status_code}"
         )
-    except requests.RequestException as e:
-        raise RuntimeError(f"image request failed: {e}") from e
-
-    content_type = resp.headers.get("content-type", "")
-    if resp.status_code == 200 and content_type.startswith("image/"):
-        return resp.content
-
-    # Non-image response: HF returns JSON like {"error": "Model ... is
-    # currently loading", "estimated_time": 20.0} or an auth error. Surface
-    # the message if present, otherwise the status code.
-    detail = ""
-    try:
-        detail = resp.json().get("error", "")
-    except ValueError:
-        detail = resp.text[:200]
-    raise RuntimeError(detail or f"image provider returned HTTP {resp.status_code}")
