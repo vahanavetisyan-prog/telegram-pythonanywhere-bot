@@ -94,9 +94,20 @@ DEFAULT_PROVIDER = "main"
 # outbound whitelist). Requires HF_TOKEN — HF's hosted inference rejects
 # anonymous calls. IMAGE_MODEL can be any HF text-to-image model id.
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "black-forest-labs/FLUX.1-schnell").strip()
-IMAGE_API_BASE = os.environ.get(
-    "IMAGE_API_BASE", "https://router.huggingface.co/hf-inference/models"
-).strip()
+# Router root. Image calls hit the OpenAI-compatible endpoint
+# {IMAGE_API_BASE}/{provider}/v1/images/generations, which returns the image as
+# base64 inside a JSON body. That body comes back over router.huggingface.co
+# (on PA's free-tier whitelist), unlike providers that reply with an image URL
+# on a CDN PA can't reach. The old /hf-inference/models raw-bytes endpoint was
+# dropped: hf-inference is deprecating text-to-image models and returning 500s.
+IMAGE_API_BASE = os.environ.get("IMAGE_API_BASE", "https://router.huggingface.co").strip()
+# Ordered HF Inference Providers to try for IMAGE_MODEL; first success wins.
+# nscale/together serve FLUX.1-schnell and return base64 JSON. Comma-separated.
+IMAGE_PROVIDERS = [
+    p.strip()
+    for p in os.environ.get("IMAGE_PROVIDERS", "nscale,together").split(",")
+    if p.strip()
+]
 # Wall-clock cap on the image call. Text-to-image is slow (cold starts +
 # diffusion steps); keep it under Telegram's ~60s webhook window.
 IMAGE_REQUEST_TIMEOUT = int(os.environ.get("IMAGE_REQUEST_TIMEOUT", "55"))

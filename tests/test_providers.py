@@ -1,3 +1,4 @@
+import base64
 from unittest.mock import patch, MagicMock
 
 
@@ -183,24 +184,38 @@ def test_generate_dispatches_to_hf():
 # ── generate_image ──────────────────────────────────────────────────────────
 
 
+def _img_ok(raw: bytes):
+    """A 200 image response carrying base64-encoded bytes in OpenAI shape."""
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"data": [{"b64_json": base64.b64encode(raw).decode()}]}
+    return resp
+
+
+def _img_err(status: int, message: str):
+    resp = MagicMock()
+    resp.status_code = status
+    resp.json.return_value = {"error": message}
+    return resp
+
+
 def test_generate_image_returns_bytes_on_success():
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.headers = {"content-type": "image/png"}
-    mock_resp.content = b"\x89PNG-bytes"
     with (
         patch("bot.providers.HF_TOKEN", "tok"),
-        patch("bot.providers.IMAGE_API_BASE", "https://router.example/models"),
+        patch("bot.providers.IMAGE_API_BASE", "https://router.example"),
         patch("bot.providers.IMAGE_MODEL", "some/model"),
-        patch("bot.providers.requests.post", return_value=mock_resp) as mock_post,
+        patch("bot.providers.IMAGE_PROVIDERS", ["nscale"]),
+        patch("bot.providers.requests.post", return_value=_img_ok(b"\x89PNG-bytes")) as mock_post,
     ):
         from bot.providers import generate_image
 
         assert generate_image("a red apple") == b"\x89PNG-bytes"
-        # URL is joined without a double slash, and the prompt is sent as inputs
+        # Hits the provider's OpenAI-compatible image endpoint with model+prompt
         args, kwargs = mock_post.call_args
-        assert args[0] == "https://router.example/models/some/model"
-        assert kwargs["json"] == {"inputs": "a red apple"}
+        assert args[0] == "https://router.example/nscale/v1/images/generations"
+        assert kwargs["json"]["model"] == "some/model"
+        assert kwargs["json"]["prompt"] == "a red apple"
+        assert kwargs["json"]["response_format"] == "b64_json"
         assert kwargs["headers"]["Authorization"] == "Bearer tok"
 
 
@@ -218,21 +233,13 @@ def test_generate_image_raises_without_token():
 def test_generate_image_retries_on_cold_model_then_succeeds():
     """A 503 'model loading' is transient: wait and retry within the budget,
     then return the image once the model is warm."""
-    loading = MagicMock()
-    loading.status_code = 503
-    loading.headers = {"content-type": "application/json"}
-    loading.json.return_value = {"error": "Model is currently loading"}
-
-    ok = MagicMock()
-    ok.status_code = 200
-    ok.headers = {"content-type": "image/png"}
-    ok.content = b"warm-image"
-
     with (
         patch("bot.providers.HF_TOKEN", "tok"),
+        patch("bot.providers.IMAGE_PROVIDERS", ["nscale"]),
         patch("bot.providers.time.sleep") as mock_sleep,
         patch(
-            "bot.providers.requests.post", side_effect=[loading, ok]
+            "bot.providers.requests.post",
+            side_effect=[_img_err(503, "Model is currently loading"), _img_ok(b"warm-image")],
         ) as mock_post,
     ):
         from bot.providers import generate_image
@@ -242,17 +249,16 @@ def test_generate_image_retries_on_cold_model_then_succeeds():
         mock_sleep.assert_called()  # waited between the cold 503 and the retry
 
 
-def test_generate_image_raises_immediately_on_fatal_error():
-    """A non-retryable error (e.g. bad token → 401) fails fast with the
-    provider's message, without retrying."""
-    mock_resp = MagicMock()
-    mock_resp.status_code = 401
-    mock_resp.headers = {"content-type": "application/json"}
-    mock_resp.json.return_value = {"error": "Invalid credentials"}
+def test_generate_image_raises_immediately_on_auth_error():
+    """A 401 (bad token / missing permission) fails fast and does NOT try the
+    next provider — no other provider would accept the same bad token."""
     with (
         patch("bot.providers.HF_TOKEN", "tok"),
+        patch("bot.providers.IMAGE_PROVIDERS", ["nscale", "together"]),
         patch("bot.providers.time.sleep") as mock_sleep,
-        patch("bot.providers.requests.post", return_value=mock_resp) as mock_post,
+        patch(
+            "bot.providers.requests.post", return_value=_img_err(401, "Invalid credentials")
+        ) as mock_post,
     ):
         from bot.providers import generate_image
 
@@ -260,47 +266,38 @@ def test_generate_image_raises_immediately_on_fatal_error():
             generate_image("a cat")
             assert False, "Should have raised"
         except RuntimeError as e:
+            assert "auth" in str(e)
             assert "Invalid credentials" in str(e)
-        assert mock_post.call_count == 1
+        assert mock_post.call_count == 1  # did not try the second provider
         mock_sleep.assert_not_called()
 
 
-def test_generate_image_falls_back_to_next_model_on_model_error():
-    """A per-model error (404 / not-supported) rolls on to the next fallback
-    model; the second model's image bytes are returned."""
-    unavailable = MagicMock()
-    unavailable.status_code = 404
-    unavailable.headers = {"content-type": "application/json"}
-    unavailable.json.return_value = {"error": "Model not found"}
-
-    ok = MagicMock()
-    ok.status_code = 200
-    ok.headers = {"content-type": "image/png"}
-    ok.content = b"fallback-image"
-
+def test_generate_image_falls_back_to_next_provider_on_5xx():
+    """A provider outage (500) rolls on to the next provider, which succeeds."""
     with (
         patch("bot.providers.HF_TOKEN", "tok"),
-        patch("bot.providers.IMAGE_MODEL", "primary/model"),
-        patch("bot.providers.requests.post", side_effect=[unavailable, ok]) as mock_post,
+        patch("bot.providers.IMAGE_PROVIDERS", ["nscale", "together"]),
+        patch(
+            "bot.providers.requests.post",
+            side_effect=[_img_err(500, "Internal Error"), _img_ok(b"fallback-image")],
+        ) as mock_post,
     ):
         from bot.providers import generate_image
 
         assert generate_image("a cat") == b"fallback-image"
-        assert mock_post.call_count == 2  # primary failed, fallback succeeded
+        assert mock_post.call_count == 2  # first provider down, second worked
 
 
 def test_generate_image_billing_error_aborts_without_fallback():
-    """A billing error (402) is global — no other model would fix it, so the
-    command fails fast without trying fallback models."""
-    broke = MagicMock()
-    broke.status_code = 402
-    broke.headers = {"content-type": "application/json"}
-    broke.json.return_value = {"error": "You have exceeded your monthly credits"}
-
+    """A billing error (402) is global — no other provider fixes it, so the
+    command fails fast without trying the fallback provider."""
     with (
         patch("bot.providers.HF_TOKEN", "tok"),
-        patch("bot.providers.IMAGE_MODEL", "primary/model"),
-        patch("bot.providers.requests.post", return_value=broke) as mock_post,
+        patch("bot.providers.IMAGE_PROVIDERS", ["nscale", "together"]),
+        patch(
+            "bot.providers.requests.post",
+            return_value=_img_err(402, "You have exceeded your monthly credits"),
+        ) as mock_post,
     ):
         from bot.providers import generate_image
 
@@ -309,4 +306,4 @@ def test_generate_image_billing_error_aborts_without_fallback():
             assert False, "Should have raised"
         except RuntimeError as e:
             assert "billing" in str(e)
-        assert mock_post.call_count == 1  # did not try any fallback model
+        assert mock_post.call_count == 1  # did not try the fallback provider

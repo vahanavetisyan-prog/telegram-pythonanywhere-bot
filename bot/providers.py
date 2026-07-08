@@ -1,3 +1,4 @@
+import base64
 import re
 import time
 
@@ -12,6 +13,7 @@ from bot.config import (
     HF_TOKEN,
     IMAGE_API_BASE,
     IMAGE_MODEL,
+    IMAGE_PROVIDERS,
     IMAGE_REQUEST_TIMEOUT,
     MODEL,
 )
@@ -114,50 +116,44 @@ def generate(user_id: int, messages: list) -> str:
     return _call_main(messages)
 
 
-# Byte-returning fallback models on the hf-inference provider. All stream
-# raw image bytes back through router.huggingface.co (the only image host on
-# PA's free-tier outbound whitelist — URL-returning providers like fal-ai
-# would hand back a fal.media link the PA worker can't fetch). Tried in order
-# after the configured IMAGE_MODEL, so a model that's momentarily unavailable
-# (404 / not-supported) doesn't sink the whole command.
-_IMAGE_FALLBACK_MODELS = [
-    "black-forest-labs/FLUX.1-schnell",
-    "stabilityai/stable-diffusion-xl-base-1.0",
-]
-
-
 def _extract_error_detail(resp) -> str:
-    """Pull a human-readable reason out of a non-image HF response.
+    """Pull a human-readable reason out of an error response.
 
-    HF's ``error`` field is usually a string but can be a list/dict, so coerce
-    to ``str`` — ``"loading" in detail.lower()`` must never raise.
+    The ``error`` field may be a string or an OpenAI-style nested object, so
+    coerce to ``str`` — ``"loading" in detail.lower()`` must never raise.
     """
     try:
         body = resp.json()
     except ValueError:
         return resp.text[:200]
     if isinstance(body, dict):
-        detail = body.get("error") or body.get("message") or ""
+        err = body.get("error")
+        if isinstance(err, dict):
+            err = err.get("message") or err.get("type")
+        detail = err or body.get("message") or ""
     else:
         detail = body
     return str(detail)[:200]
 
 
-def _request_image(model: str, prompt: str, deadline: float) -> bytes:
-    """POST one model to the hf-inference endpoint, retrying only cold starts.
+def _request_image(provider: str, prompt: str, deadline: float) -> bytes:
+    """Ask one HF Inference Provider to generate an image; return raw bytes.
 
-    Returns image bytes on success. Raises ``RuntimeError`` on failure; the
-    message is prefixed with a category (``auth:`` / ``billing:`` / ``model:``
-    / ``timeout:``) so the caller can decide whether trying another model helps.
+    Uses the OpenAI-compatible endpoint
+    ``{IMAGE_API_BASE}/{provider}/v1/images/generations`` with
+    ``response_format=b64_json`` so the image comes back as base64 inside the
+    JSON body (fetchable on PA's whitelist — no CDN download needed).
+
+    Raises ``RuntimeError`` on failure; the message is prefixed with a category
+    (``auth:`` / ``billing:`` / ``model:`` / ``timeout:`` / ``provider:``) so
+    the caller knows whether trying the next provider would help.
     """
-    url = f"{IMAGE_API_BASE.rstrip('/')}/{model}"
+    url = f"{IMAGE_API_BASE.rstrip('/')}/{provider}/v1/images/generations"
     headers = {
         "Authorization": f"Bearer {HF_TOKEN}",
-        # Ask HF to hold the request until the model is warm instead of
-        # returning an immediate 503 on a cold start. Honored by the
-        # Inference API; harmless where it isn't (we also retry 503 below).
-        "x-wait-for-model": "true",
+        "Content-Type": "application/json",
     }
+    payload = {"model": IMAGE_MODEL, "prompt": prompt, "response_format": "b64_json"}
     last_detail = ""
     while True:
         remaining = deadline - time.monotonic()
@@ -167,18 +163,33 @@ def _request_image(model: str, prompt: str, deadline: float) -> bytes:
             resp = requests.post(
                 url,
                 headers=headers,
-                json={"inputs": prompt},
+                json=payload,
                 timeout=min(IMAGE_REQUEST_TIMEOUT, remaining),
             )
         except requests.RequestException as e:
             raise RuntimeError(f"network: image request failed: {e}") from e
 
-        content_type = resp.headers.get("content-type", "")
-        if resp.status_code == 200 and content_type.startswith("image/"):
-            return resp.content
+        code = resp.status_code
+        if code == 200:
+            try:
+                item = resp.json()["data"][0]
+            except (ValueError, KeyError, IndexError, TypeError) as e:
+                raise RuntimeError(
+                    f"provider: unexpected response from {provider}: {e}"
+                ) from e
+            b64 = item.get("b64_json")
+            if b64:
+                try:
+                    return base64.b64decode(b64)
+                except (ValueError, TypeError) as e:
+                    raise RuntimeError(f"provider: bad base64 from {provider}: {e}") from e
+            # A URL-only reply points at a CDN PA can't reach — treat as a
+            # per-provider problem so the next provider is tried.
+            if item.get("url"):
+                raise RuntimeError(f"model: {provider} returned a URL, not image bytes")
+            raise RuntimeError(f"provider: no image in {provider} response")
 
         last_detail = _extract_error_detail(resp)
-        code = resp.status_code
 
         # A cold model (503 / "loading") is transient — wait and retry while
         # the time budget allows.
@@ -188,11 +199,10 @@ def _request_image(model: str, prompt: str, deadline: float) -> bytes:
             time.sleep(3)
             continue
 
-        # Classify the fatal errors. auth/billing are token-config problems
-        # that no other model will fix; model errors are worth a fallback.
+        # auth/billing are token-config problems no other provider will fix.
         if code in (401, 403):
             raise RuntimeError(
-                f"auth: HF token rejected (HTTP {code}) — check HF_TOKEN has "
+                f"auth: HF token rejected (HTTP {code}) — check HF_TOKEN has the "
                 f"'Make calls to Inference Providers' permission. {last_detail}"
             )
         if code == 402:
@@ -200,41 +210,42 @@ def _request_image(model: str, prompt: str, deadline: float) -> bytes:
                 f"billing: HF inference credits exhausted (HTTP 402) — the free "
                 f"monthly quota is used up or billing isn't enabled. {last_detail}"
             )
-        if code in (404, 400) or "not supported" in last_detail.lower():
-            raise RuntimeError(f"model: '{model}' unavailable (HTTP {code}). {last_detail}")
+        # 4xx model issues and 5xx provider outages are both worth trying the
+        # next provider (a provider-side 500 often clears by switching).
+        if code in (400, 404) or code >= 500 or "not supported" in last_detail.lower():
+            raise RuntimeError(f"model: {provider} unavailable (HTTP {code}). {last_detail}")
         raise RuntimeError(f"provider: HTTP {code}. {last_detail}")
 
 
 def generate_image(prompt: str) -> bytes:
-    """Generate an image from a text prompt via the Hugging Face Inference API.
+    """Generate an image from a text prompt via HF Inference Providers.
 
-    Tries the configured ``IMAGE_MODEL`` first, then a small list of
-    byte-returning fallback models on the same whitelisted hf-inference
-    endpoint. A ``model:`` failure (unavailable / not-supported) rolls on to
-    the next candidate; ``auth:`` and ``billing:`` failures abort immediately
-    (no other model will fix a bad token or empty credit balance).
+    Tries each provider in ``IMAGE_PROVIDERS`` in order, sharing one wall-clock
+    budget. A ``model:`` / ``provider:`` failure (model unavailable, outage,
+    URL-only reply) rolls on to the next provider; ``auth:`` and ``billing:``
+    failures abort immediately (no other provider will fix a bad token or an
+    empty credit balance).
 
     Raises ``RuntimeError`` with a short, categorized message on any failure so
     the handler can log the real reason and surface a clean apology.
     """
     if not HF_TOKEN:
         raise RuntimeError("image generation is not configured (HF_TOKEN is unset)")
-
-    # Configured model first, then fallbacks, de-duplicated, order preserved.
-    candidates = [IMAGE_MODEL] + [m for m in _IMAGE_FALLBACK_MODELS if m != IMAGE_MODEL]
+    if not IMAGE_PROVIDERS:
+        raise RuntimeError("image generation is not configured (no IMAGE_PROVIDERS set)")
 
     deadline = time.monotonic() + IMAGE_REQUEST_TIMEOUT
     last_error = None
-    for model in candidates:
+    for provider in IMAGE_PROVIDERS:
         if deadline - time.monotonic() <= 1:
             break
         try:
-            return _request_image(model, prompt, deadline)
+            return _request_image(provider, prompt, deadline)
         except RuntimeError as e:
             last_error = e
-            # Only a per-model problem is worth another attempt; a token or
+            # Only a per-provider problem is worth another attempt; a token or
             # billing problem is global, so stop and report it.
-            if not str(e).startswith("model:"):
+            if not str(e).startswith(("model:", "provider:", "network:")):
                 raise
-            print(f"Image model fallback: {e}")
+            print(f"Image provider fallback: {e}")
     raise last_error or RuntimeError("image generation failed")
