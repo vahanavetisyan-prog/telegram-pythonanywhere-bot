@@ -263,3 +263,50 @@ def test_generate_image_raises_immediately_on_fatal_error():
             assert "Invalid credentials" in str(e)
         assert mock_post.call_count == 1
         mock_sleep.assert_not_called()
+
+
+def test_generate_image_falls_back_to_next_model_on_model_error():
+    """A per-model error (404 / not-supported) rolls on to the next fallback
+    model; the second model's image bytes are returned."""
+    unavailable = MagicMock()
+    unavailable.status_code = 404
+    unavailable.headers = {"content-type": "application/json"}
+    unavailable.json.return_value = {"error": "Model not found"}
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.headers = {"content-type": "image/png"}
+    ok.content = b"fallback-image"
+
+    with (
+        patch("bot.providers.HF_TOKEN", "tok"),
+        patch("bot.providers.IMAGE_MODEL", "primary/model"),
+        patch("bot.providers.requests.post", side_effect=[unavailable, ok]) as mock_post,
+    ):
+        from bot.providers import generate_image
+
+        assert generate_image("a cat") == b"fallback-image"
+        assert mock_post.call_count == 2  # primary failed, fallback succeeded
+
+
+def test_generate_image_billing_error_aborts_without_fallback():
+    """A billing error (402) is global — no other model would fix it, so the
+    command fails fast without trying fallback models."""
+    broke = MagicMock()
+    broke.status_code = 402
+    broke.headers = {"content-type": "application/json"}
+    broke.json.return_value = {"error": "You have exceeded your monthly credits"}
+
+    with (
+        patch("bot.providers.HF_TOKEN", "tok"),
+        patch("bot.providers.IMAGE_MODEL", "primary/model"),
+        patch("bot.providers.requests.post", return_value=broke) as mock_post,
+    ):
+        from bot.providers import generate_image
+
+        try:
+            generate_image("a cat")
+            assert False, "Should have raised"
+        except RuntimeError as e:
+            assert "billing" in str(e)
+        assert mock_post.call_count == 1  # did not try any fallback model
