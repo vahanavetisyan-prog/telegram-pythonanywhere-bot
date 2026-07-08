@@ -139,14 +139,17 @@ def cmd_translate(message):
     if not text:
         bot.send_message(
             message.chat.id,
-            "Usage: /translate <text>\nExample: /translate bonjour le monde",
+            "Usage: /translate <text>\nExample: /translate բարեւ աշխարհ",
         )
         return
+    # Detect Armenian script (Unicode block U+0531–U+058F). If any Armenian
+    # letter is present, translate to English; otherwise translate to Armenian.
+    has_armenian = any("Ա" <= ch <= "֏" for ch in text)
+    target = "English" if has_armenian else "Armenian"
     reply = ask_ai(
         message.from_user.id,
-        "Translate the following text into English. If it is already in English, "
-        "translate it into Spanish instead. Reply with ONLY the translation and no "
-        f"commentary.\n\n{text}",
+        f"Translate the following text into {target}. Reply with ONLY the "
+        f"translation and no commentary.\n\n{text}",
         system_prompt=None,  # trusted command — skip the programming-only filter
     )
     send_reply(message, reply)
@@ -260,7 +263,7 @@ def cmd_help(message):
         "/roll — roll a six-sided dice",
         "/roast <name> — get a playful roast for yourself or a friend ",
         "/createimage <description> — generate an image from a description",
-        "/translate <text> — translate text (to English, or to Spanish if already English)",
+        "/translate <text> — translate Armenian↔English (auto-detects the language)",
         "/define <word> — get a short, simple definition",
         "/summarize <text> — summarize text in a few sentences",
         "/explain <topic> — get a simple, ELI5-style explanation",

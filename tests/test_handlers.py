@@ -404,12 +404,28 @@ def test_cmd_translate_passes_no_system_prompt():
     ):
         from bot.handlers import cmd_translate
 
-        msg = make_message(text="/translate bonjour le monde")
+        msg = make_message(text="/translate hello world")
         cmd_translate(msg)
         # trusted command must bypass the programming-only filter
         assert mock_ask.call_args.kwargs.get("system_prompt", "MISSING") is None
-        assert "bonjour le monde" in mock_ask.call_args[0][1]
+        assert "hello world" in mock_ask.call_args[0][1]
+        # English input → translate into Armenian
+        assert "Armenian" in mock_ask.call_args[0][1]
         mock_send.assert_called_once_with(msg, "hello world")
+
+
+def test_cmd_translate_armenian_input_targets_english():
+    with (
+        patch("bot.handlers.ask_ai", return_value="hello") as mock_ask,
+        patch("bot.handlers.send_reply"),
+    ):
+        from bot.handlers import cmd_translate
+
+        cmd_translate(make_message(text="/translate բարեւ աշխարհ"))
+        prompt = mock_ask.call_args[0][1]
+        assert "բարեւ աշխարհ" in prompt
+        # Armenian input → translate into English
+        assert "English" in prompt
 
 
 def test_cmd_translate_no_arg_shows_usage():
